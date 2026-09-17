@@ -419,7 +419,7 @@ Returner KUN gyldig JSON med følgende struktur:
     // 3. Merkevarer (logos + kjente merkevarer + overskrift/header)
     const identifiedBrands: string[] = [...detectedLogos];
 
-    // Norske og vanlige UI-ord, navigasjon og preposisjoner som ALDRI skal tolkes som firmanavn
+    // Norske og vanlige UI-ord, navigasjon, preposisjoner og nettleserelementer som ALDRI skal tolkes som butikknavn
     const UI_STOPWORDS = new Set([
       'meny', 'menu', 'hjem', 'home', 'søk', 'search', 'finn butikk', 'finn',
       'logg inn', 'login', 'logg ut', 'logout', 'favoritter', 'favorites',
@@ -432,7 +432,12 @@ Returner KUN gyldig JSON med følgende struktur:
       'i', 'på', 'til', 'for', 'med', 'av', 'fra', 'om', 'over', 'under', 'ved',
       'mot', 'etter', 'før', 'uten', 'hos', 'mellom', 'rundt', 'gjennom', 'blant',
       'gratis', 'ny', 'nye', 'alt', 'alle', 'ingen', 'mange', 'mest', 'vår', 'våre',
-      'din', 'ditt', 'dine', 'min', 'mitt', 'mine', 'og', 'eller', 'men', 'som', 'at'
+      'din', 'ditt', 'dine', 'min', 'mitt', 'mine', 'og', 'eller', 'men', 'som', 'at',
+      // Nettleserelementer og faner (Chrome/Safari/Edge) som ofte havner øverst på skjermbilder
+      'google', 'google chrome', 'chrome', 'safari', 'edge', 'microsoft edge',
+      'firefox', 'opera', 'brave', 'ny fane', 'new tab', 'fane', 'faner', 'tab', 'tabs',
+      'innboks', 'inbox', 'bokmerker', 'bookmarks', 'tillegg', 'extensions',
+      'nedlastinger', 'downloads', 'historikk', 'history', 'søk på google'
     ]);
 
     const isUIStopword = (word: string): boolean => {
@@ -458,17 +463,38 @@ Returner KUN gyldig JSON med følgende struktur:
     }
 
     // 2. Analyser overskrifts- og topplinjer (Header detection)
+    // Hopper automatisk over nettleserfane-støy som Google, Chrome, Ny fane osv.
     const lines = cleanText.split('\n').map(l => l.trim()).filter(Boolean);
-    for (let i = 0; i < Math.min(5, lines.length); i++) {
+    for (let i = 0; i < Math.min(8, lines.length); i++) {
       const line = lines[i];
+      const lower = line.toLowerCase();
+      // Hopp over linjer som inneholder typiske nettleserfane-ord
+      if (
+        lower.includes('google') ||
+        lower.includes('chrome') ||
+        lower.includes('ny fane') ||
+        lower.includes('new tab') ||
+        lower.includes('bokmerke')
+      ) {
+        continue;
+      }
+
       const stripped = line.replace(/^[=☰\-_#\*\s]+/, '').trim();
       if (!stripped || isUIStopword(stripped)) continue;
 
-      const words = stripped.split(/\s+/);
-      if (words.length <= 2 && stripped.length >= 2 && stripped.length <= 25) {
-        if (!/^\d+([.,]\d+)?\s*(kr|nok|%)?$/i.test(stripped) && !stripped.toLowerCase().startsWith('fri frakt')) {
+      // Hvis linjen har skilletegn som "-" eller "|", ta den første delen (f.eks. "Privex - Cloud" -> "Privex")
+      const firstSegment = stripped.split(/[-|–—•:]/)[0].trim();
+      const words = firstSegment.split(/\s+/);
+
+      if (words.length <= 3 && firstSegment.length >= 2 && firstSegment.length <= 30) {
+        if (!/^\d+([.,]\d+)?\s*(kr|nok|%)?$/i.test(firstSegment) && !firstSegment.toLowerCase().startsWith('fri frakt')) {
           const candidate = words[0].replace(/[^a-zA-ZæøåÆØÅ0-9]/g, '');
-          if (!isUIStopword(candidate) && candidate.length >= 2) {
+          if (
+            !isUIStopword(candidate) &&
+            candidate.length >= 2 &&
+            !candidate.toLowerCase().startsWith('http') &&
+            !candidate.toLowerCase().startsWith('www')
+          ) {
             if (!identifiedBrands.some(b => b.toLowerCase() === candidate.toLowerCase())) {
               identifiedBrands.push(candidate);
             }

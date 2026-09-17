@@ -110,8 +110,23 @@ export class BrregService {
       });
 
       scored.sort((a, b) => b.score - a.score);
-      const bestMatch = scored[0].entity;
-      return this.processEntity(bestMatch, name);
+      const best = scored[0];
+
+      // Sjekk om det faktisk er en reell navnelikhet, eller bare en tilfeldig fuzzy-match fra Brreg (f.eks. Privex -> Pritex)
+      const bestName = (best.entity.navn || '').toUpperCase();
+      const hasActualMatch = bestName.includes(cleanQ) || cleanQ.includes(bestName);
+
+      if (!hasActualMatch) {
+        return {
+          searchedQuery: name,
+          found: false,
+          warningFlags: [`Ingen registrerte foretak i Brønnøysundregistrene matcher navnet «${name}»`],
+          isDissolvedOrBankrupt: false,
+          isRegisteredInMva: false,
+        };
+      }
+
+      return this.processEntity(best.entity, name);
     } catch (error: any) {
       console.warn(`Brreg searchByName failed for ${name}:`, error.message);
       return {
