@@ -5,6 +5,7 @@ import {
   BrregCheckResult,
   DomainCheckResult,
   ReputationCheckResult,
+  ReviewsCheckResult,
   FinalAnalysisReport,
   TrafficLightColor,
   RiskLevel,
@@ -136,11 +137,12 @@ Svar KUN med et gyldig JSON-objekt med nøyaktig denne strukturen:
     brreg?: BrregCheckResult;
     domain?: DomainCheckResult;
     reputation?: ReputationCheckResult;
+    reviews?: ReviewsCheckResult;
   }): Promise<FinalAnalysisReport> {
-    const { id, query, vision, brreg, domain, reputation } = params;
+    const { id, query, vision, brreg, domain, reputation, reviews } = params;
 
     if (!this.genAI) {
-      return this.calculateHeuristicScore(id, query, vision, brreg, domain, reputation);
+      return this.calculateHeuristicScore(id, query, vision, brreg, domain, reputation, reviews);
     }
 
     try {
@@ -163,11 +165,17 @@ Inndata:
 - Data fra Brønnøysundregistrene (Enhetsregisteret): ${JSON.stringify(brreg || null)}
 - Domene- og nettadressevalidering: ${JSON.stringify(domain || null)}
 - Omdømme- og varslingssjekk: ${JSON.stringify(reputation || null)}
+- Kundeanmeldelser og omdømme (Google Reviews og Trustpilot): ${JSON.stringify(reviews || null)}
 
 Generer en seriøsitetsscore fra 0 til 100:
-- 0–39: HØY RISIKO (RØD). Typisk: Falsk merkevare, kjent svindelmønster, konkursrammet foretak, mistenkelig domene, ingen reell bedrift bak.
-- 40–69: MODERAT RISIKO / VÆR OPPMERKSOM (GUL). Typisk: Nystiftet foretak, manglende MVA, ufullstendig kontaktinfo, uklare vilkår.
-- 70–100: LAV RISIKO / ETABLERT (GRØNN). Typisk: Etablert norsk AS med historikk, aktivt MVA-registrert, offisielt domene.
+- 0–39: HØY RISIKO (RØD). Typisk: Falsk merkevare, kjent svindelmønster, konkursrammet foretak, mistenkelig domene, ingen reell bedrift bak, eller ekstremt dårlige anmeldelser/kundeklager.
+- 40–69: MODERAT RISIKO / VÆR OPPMERKSOM (GUL). Typisk: Nystiftet foretak, manglende MVA, ufullstendig kontaktinfo, uklare vilkår, eller under middels/blandede kundeanmeldelser.
+- 70–100: LAV RISIKO / ETABLERT (GRØNN). Typisk: Etablert norsk AS med historikk, aktivt MVA-registrert, offisielt domene, gode kundeanmeldelser.
+
+Viktig om kundeanmeldelser:
+- Hvis aktøren har lave anmeldelser på Google (< 3.0 stjerner) eller klager på manglende levering/kundeservice: Inkluder en risikofaktor med severity "danger" eller "warning" og reduser scoren.
+- Hvis aktøren har gode verifiserte anmeldelser (>= 4.0 stjerner med et solid antall omtaler): Inkluder en trygghetsfaktor med severity "info".
+- Hvis ingen anmeldelser eller sted finnes for en nettbutikk som utgir seg for å være etablert: Nevn dette i vurderingen.
 
 Returner KUN gyldig JSON med følgende struktur:
 {
@@ -221,10 +229,11 @@ Returner KUN gyldig JSON med følgende struktur:
         domain,
         vision,
         reputation,
+        reviews,
       };
     } catch (err: any) {
       console.warn('Gemini synthesis failed, falling back to heuristic engine:', err.message);
-      return this.calculateHeuristicScore(id, query, vision, brreg, domain, reputation);
+      return this.calculateHeuristicScore(id, query, vision, brreg, domain, reputation, reviews);
     }
   }
 
@@ -237,7 +246,8 @@ Returner KUN gyldig JSON med følgende struktur:
     vision?: VisionAnalysisResult,
     brreg?: BrregCheckResult,
     domain?: DomainCheckResult,
-    reputation?: ReputationCheckResult
+    reputation?: ReputationCheckResult,
+    reviews?: ReviewsCheckResult
   ): FinalAnalysisReport {
     let score = 75; // Nøytralt utgangspunkt
     const riskFactors: AssessmentFactor[] = [];
@@ -345,6 +355,35 @@ Returner KUN gyldig JSON med følgende struktur:
       score -= 40;
     }
 
+    // Kundeanmeldelser & Google Reviews
+    if (reviews?.google?.found && reviews.google.rating !== undefined) {
+      const rating = reviews.google.rating;
+      const count = reviews.google.userRatingCount || 0;
+
+      if (rating < 2.5 && count >= 5) {
+        riskFactors.push({
+          title: 'Kritisk lave kundeanmeldelser på Google',
+          description: `Gjennomsnittlig vurdering er kun ${rating} av 5 stjerner basert på ${count} anmeldelser. Kunder rapporterer om betydelig misnøye eller problemer.`,
+          severity: 'danger',
+        });
+        score -= 25;
+      } else if (rating < 3.5 && count >= 5) {
+        riskFactors.push({
+          title: 'Under middels kundeanmeldelser på Google',
+          description: `Vurdering er ${rating} av 5 stjerner basert på ${count} anmeldelser. En del kunder melder om utfordringer.`,
+          severity: 'warning',
+        });
+        score -= 10;
+      } else if (rating >= 4.0 && count >= 10) {
+        positiveFactors.push({
+          title: 'Gode kundeanmeldelser på Google',
+          description: `Vurdering er ${rating} av 5 stjerner basert på ${count} verifiserte anmeldelser. Viser fornøyde kunder og etablert drift.`,
+          severity: 'info',
+        });
+        score += 10;
+      }
+    }
+
     // Begrens score mellom 0 og 100
     score = Math.max(0, Math.min(100, score));
 
@@ -395,6 +434,7 @@ Returner KUN gyldig JSON med følgende struktur:
       domain,
       vision,
       reputation,
+      reviews,
     };
   }
 

@@ -12,9 +12,143 @@ class DetailAccordion extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
+        if (report.reviews != null) _buildReviewsCard(context, report.reviews!),
         if (report.brreg != null) _buildBrregCard(context, report.brreg!),
         if (report.domain != null) _buildDomainCard(report.domain!),
         if (report.vision != null) _buildVisionCard(report.vision!),
+      ],
+    );
+  }
+
+  Widget _buildReviewsCard(BuildContext context, ReviewsDetails reviews) {
+    final google = reviews.google;
+    final trustpilot = reviews.trustpilot;
+    final hasGoogleRating = google?.found == true && google?.rating != null;
+
+    String subtitle = 'Ingen anmeldelser registrert';
+    if (hasGoogleRating) {
+      subtitle = '${google!.rating!.toStringAsFixed(1)} ★ Google (${google.userRatingCount ?? 0} omtaler)';
+    } else if (trustpilot?.url != null) {
+      subtitle = 'Trustpilot-oppslag tilgjengelig';
+    }
+
+    final isPositive = hasGoogleRating && (google!.rating! >= 4.0);
+
+    return _AccordionCard(
+      title: 'Kundeanmeldelser & Omdømme',
+      subtitle: subtitle,
+      icon: Icons.star_rate_rounded,
+      isVerified: isPositive,
+      children: [
+        if (hasGoogleRating) ...[
+          _buildInfoRow(
+            'Google-vurdering',
+            '${google!.rating!.toStringAsFixed(1)} av 5 stjerner',
+            highlightColor: google.rating! >= 4.0
+                ? AppTheme.safeGreen
+                : (google.rating! < 3.0 ? AppTheme.dangerRed : AppTheme.warningAmber),
+          ),
+          _buildInfoRow('Antall anmeldelser', '${google.userRatingCount ?? 0} verifiserte anmeldelser'),
+          if (google.placeName != null)
+            _buildInfoRow('Registrert sted', google.placeName!),
+          if (google.formattedAddress != null)
+            _buildInfoRow('Adresse', google.formattedAddress!),
+          if (google.googleMapsUri != null) ...[
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: () async {
+                final url = Uri.parse(google.googleMapsUri!);
+                if (await canLaunchUrl(url)) {
+                  await launchUrl(url, mode: LaunchMode.externalApplication);
+                }
+              },
+              icon: const Icon(Icons.star_rounded, size: 16),
+              label: const Text('Åpne anmeldelser på Google'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppTheme.primaryBlue,
+                side: const BorderSide(color: AppTheme.primaryBlue),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ],
+          if (google.recentReviews.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            const Text(
+              'Utdrag fra kundeanmeldelser:',
+              style: TextStyle(fontWeight: FontWeight.w600, color: AppTheme.textPrimary, fontSize: 13),
+            ),
+            const SizedBox(height: 6),
+            ...google.recentReviews.where((r) => r.text != null && r.text!.isNotEmpty).take(2).map(
+              (r) => Container(
+                margin: const EdgeInsets.only(bottom: 6),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppTheme.surfaceElevated,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          '${r.rating?.toStringAsFixed(0) ?? ''} ★',
+                          style: TextStyle(
+                            color: (r.rating ?? 5) >= 4 ? AppTheme.safeGreen : AppTheme.dangerRed,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            r.authorName ?? 'Anonym kunde',
+                            style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '«${r.text!}»',
+                      style: const TextStyle(fontSize: 12, color: AppTheme.textPrimary, fontStyle: FontStyle.italic),
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ] else ...[
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 6.0),
+            child: Text(
+              'Ingen registrerte anmeldelser funnet på Google. Dette kan indikere en ukjent aktør eller et nyopprettet nettsted.',
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+            ),
+          ),
+        ],
+
+        if (trustpilot?.url != null) ...[
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: () async {
+              final url = Uri.parse(trustpilot!.url!);
+              if (await canLaunchUrl(url)) {
+                await launchUrl(url, mode: LaunchMode.externalApplication);
+              }
+            },
+            icon: const Icon(Icons.open_in_new_rounded, size: 16),
+            label: const Text('Sjekk Trustpilot-profil'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppTheme.textPrimary,
+              side: const BorderSide(color: AppTheme.cardBorder),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
+        ],
       ],
     );
   }

@@ -192,6 +192,111 @@ class VisionDetails {
   }
 }
 
+class GoogleReviewSnippet {
+  final String? authorName;
+  final double? rating;
+  final String? relativePublishTimeDescription;
+  final String? text;
+
+  GoogleReviewSnippet({
+    this.authorName,
+    this.rating,
+    this.relativePublishTimeDescription,
+    this.text,
+  });
+
+  factory GoogleReviewSnippet.fromJson(Map<String, dynamic> json) {
+    return GoogleReviewSnippet(
+      authorName: json['authorName'],
+      rating: (json['rating'] is num) ? (json['rating'] as num).toDouble() : null,
+      relativePublishTimeDescription: json['relativePublishTimeDescription'],
+      text: json['text'],
+    );
+  }
+}
+
+class GoogleReviewInfo {
+  final bool found;
+  final String? placeName;
+  final double? rating;
+  final int? userRatingCount;
+  final String? formattedAddress;
+  final String? googleMapsUri;
+  final List<GoogleReviewSnippet> recentReviews;
+
+  GoogleReviewInfo({
+    required this.found,
+    this.placeName,
+    this.rating,
+    this.userRatingCount,
+    this.formattedAddress,
+    this.googleMapsUri,
+    required this.recentReviews,
+  });
+
+  factory GoogleReviewInfo.fromJson(Map<String, dynamic>? json) {
+    if (json == null) {
+      return GoogleReviewInfo(found: false, recentReviews: []);
+    }
+    final reviewsJson = (json['recentReviews'] as List<dynamic>?) ?? [];
+    return GoogleReviewInfo(
+      found: json['found'] ?? false,
+      placeName: json['placeName'],
+      rating: (json['rating'] is num) ? (json['rating'] as num).toDouble() : null,
+      userRatingCount: (json['userRatingCount'] is num) ? (json['userRatingCount'] as num).toInt() : null,
+      formattedAddress: json['formattedAddress'],
+      googleMapsUri: json['googleMapsUri'],
+      recentReviews: reviewsJson
+          .map((r) => GoogleReviewSnippet.fromJson(r as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
+class TrustpilotInfo {
+  final String? url;
+  final String? domain;
+
+  TrustpilotInfo({this.url, this.domain});
+
+  factory TrustpilotInfo.fromJson(Map<String, dynamic>? json) {
+    if (json == null) return TrustpilotInfo();
+    return TrustpilotInfo(
+      url: json['url'],
+      domain: json['domain'],
+    );
+  }
+}
+
+class ReviewsDetails {
+  final GoogleReviewInfo? google;
+  final TrustpilotInfo? trustpilot;
+  final String? summary;
+  final List<String> warningFlags;
+  final List<String> positiveFlags;
+
+  ReviewsDetails({
+    this.google,
+    this.trustpilot,
+    this.summary,
+    required this.warningFlags,
+    required this.positiveFlags,
+  });
+
+  factory ReviewsDetails.fromJson(Map<String, dynamic>? json) {
+    if (json == null) {
+      return ReviewsDetails(warningFlags: [], positiveFlags: []);
+    }
+    return ReviewsDetails(
+      google: json['google'] != null ? GoogleReviewInfo.fromJson(json['google']) : null,
+      trustpilot: json['trustpilot'] != null ? TrustpilotInfo.fromJson(json['trustpilot']) : null,
+      summary: json['summary'],
+      warningFlags: List<String>.from(json['warningFlags'] ?? []),
+      positiveFlags: List<String>.from(json['positiveFlags'] ?? []),
+    );
+  }
+}
+
 class FinalAnalysisReport {
   final String id;
   final DateTime analyzedAt;
@@ -207,6 +312,7 @@ class FinalAnalysisReport {
   final BrregDetails? brreg;
   final DomainDetails? domain;
   final VisionDetails? vision;
+  final ReviewsDetails? reviews;
 
   FinalAnalysisReport({
     required this.id,
@@ -223,6 +329,7 @@ class FinalAnalysisReport {
     this.brreg,
     this.domain,
     this.vision,
+    this.reviews,
   });
 
   factory FinalAnalysisReport.fromJson(Map<String, dynamic> json) {
@@ -263,6 +370,7 @@ class FinalAnalysisReport {
       brreg: json['brreg'] != null ? BrregDetails.fromJson(json['brreg']) : null,
       domain: json['domain'] != null ? DomainDetails.fromJson(json['domain']) : null,
       vision: json['vision'] != null ? VisionDetails.fromJson(json['vision']) : null,
+      reviews: json['reviews'] != null ? ReviewsDetails.fromJson(json['reviews']) : null,
     );
   }
 
@@ -277,3 +385,4 @@ class FinalAnalysisReport {
     }
   }
 }
+

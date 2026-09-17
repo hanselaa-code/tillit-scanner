@@ -82,6 +82,36 @@ export interface AssessmentFactor {
   severity: FactorSeverity;
 }
 
+export interface GoogleReviewSnippet {
+  authorName?: string;
+  rating?: number;
+  relativePublishTimeDescription?: string;
+  text?: string;
+}
+
+export interface GoogleReviewInfo {
+  found: boolean;
+  placeName?: string;
+  rating?: number;
+  userRatingCount?: number;
+  formattedAddress?: string;
+  googleMapsUri?: string;
+  recentReviews?: GoogleReviewSnippet[];
+}
+
+export interface TrustpilotInfo {
+  url?: string;
+  domain?: string;
+}
+
+export interface ReviewsCheckResult {
+  google?: GoogleReviewInfo;
+  trustpilot?: TrustpilotInfo;
+  summary?: string;
+  warningFlags?: string[];
+  positiveFlags?: string[];
+}
+
 export interface FinalAnalysisReport {
   id: string;
   analyzedAt: string;
@@ -102,4 +132,5 @@ export interface FinalAnalysisReport {
   domain?: DomainCheckResult;
   vision?: VisionAnalysisResult;
   reputation?: ReputationCheckResult;
+  reviews?: ReviewsCheckResult;
 }

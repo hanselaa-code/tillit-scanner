@@ -4,18 +4,21 @@ import { GeminiService } from './gemini.service';
 import { BrregService } from './brreg.service';
 import { DomainService } from './domain.service';
 import { ReputationService } from './reputation.service';
+import { ReviewsService } from './reviews.service';
 
 export class OrchestratorService {
   private geminiService: GeminiService;
   private brregService: BrregService;
   private domainService: DomainService;
   private reputationService: ReputationService;
+  private reviewsService: ReviewsService;
 
   constructor() {
     this.geminiService = new GeminiService();
     this.brregService = new BrregService();
     this.domainService = new DomainService();
     this.reputationService = new ReputationService();
+    this.reviewsService = new ReviewsService();
   }
 
   public async analyze(request: AnalyzeRequest): Promise<FinalAnalysisReport> {
@@ -84,11 +87,14 @@ export class OrchestratorService {
       brregCandidate = request.query.trim();
     }
 
-    // 3. Parallell innhenting av eksterne kilder
-    const [brregResult, domainResult, reputationResult] = await Promise.all([
+    const brandForReviews = visionResult?.identifiedBrands?.[0] || domainBrandStem || brregCandidate;
+
+    // 3. Parallell innhenting av eksterne kilder (Brreg, Domene, Omdømme, Google Reviews & Trustpilot)
+    const [brregResult, domainResult, reputationResult, reviewsResult] = await Promise.all([
       brregCandidate ? this.brregService.lookup(brregCandidate) : Promise.resolve(undefined),
       domainCandidate ? this.domainService.analyzeDomain(domainCandidate) : Promise.resolve(undefined),
       this.reputationService.checkReputation(effectiveQuery, visionResult?.extractedText),
+      this.reviewsService.checkReviews(effectiveQuery, domainCandidate, brandForReviews),
     ]);
 
     // 4. Helhetlig vurdering og scoring
@@ -99,6 +105,7 @@ export class OrchestratorService {
       brreg: brregResult,
       domain: domainResult,
       reputation: reputationResult,
+      reviews: reviewsResult,
     });
 
     return finalReport;
