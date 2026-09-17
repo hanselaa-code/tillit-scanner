@@ -11,9 +11,10 @@ export class ReviewsService {
 
   constructor() {
     this.apiKey =
+      process.env.GOOGLE_PLACES_API_KEY ||
       process.env.GOOGLE_VISION_API_KEY ||
       process.env.GEMINI_API_KEY ||
-      'AIzaSyCHWjIZ4ik8UzIW7fwzuBXRID3BA_Tqz14';
+      '';
   }
 
   public async checkReviews(

@@ -32,6 +32,8 @@ Thumbs.db
 *.p12
 *.key
 *.mobileprovision
+*.apk
+*.aab
 google-services.json
 GoogleService-Info.plist
 

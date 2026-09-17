@@ -1,0 +1,128 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { analyzeRequestSchema } from './middleware/validation.middleware';
+import { MemoryRateLimiter } from './middleware/rate-limiter.middleware';
+import { verifyAppCheckToken } from './middleware/app-check.middleware';
+
+test('Security: Request Validation Schema', async (t) => {
+  await t.test('Avviser tomme forespørsler uten bilde eller query', () => {
+    const res = analyzeRequestSchema.safeParse({});
+    assert.equal(res.success, false);
+  });
+
+  await t.test('Avviser forespørsel med tom streng i både image og query', () => {
+    const res = analyzeRequestSchema.safeParse({ image: '', query: '   ' });
+    assert.equal(res.success, false);
+  });
+
+  await t.test('Avviser for lang query (> 500 tegn)', () => {
+    const longQuery = 'A'.repeat(501);
+    const res = analyzeRequestSchema.safeParse({ query: longQuery });
+    assert.equal(res.success, false);
+    if (!res.success) {
+      assert.match(res.error.errors[0].message, /for langt/);
+    }
+  });
+
+  await t.test('Avviser ugyldig MIME-type (f.eks. image/gif eller image/svg)', () => {
+    const res = analyzeRequestSchema.safeParse({
+      image: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      mimeType: 'image/gif' as any,
+    });
+    assert.equal(res.success, false);
+    if (!res.success) {
+      assert.match(res.error.errors[0].message, /Ugyldig MIME-type/);
+    }
+  });
+
+  await t.test('Avviser bilde som overskrider 7 MB tegn (~5 MB råfil)', () => {
+    const oversizedBase64 = 'A'.repeat(7 * 1024 * 1024 + 10);
+    const res = analyzeRequestSchema.safeParse({
+      image: oversizedBase64,
+      mimeType: 'image/jpeg',
+    });
+    assert.equal(res.success, false);
+    if (!res.success) {
+      assert.match(res.error.errors[0].message, /for stort/);
+    }
+  });
+
+  await t.test('Godkjenner gyldig tekstforespørsel', () => {
+    const res = analyzeRequestSchema.safeParse({
+      query: 'Tine SA',
+    });
+    assert.equal(res.success, true);
+    if (res.success) {
+      assert.equal(res.data.query, 'Tine SA');
+    }
+  });
+
+  await t.test('Godkjenner gyldig bildeforespørsel med jpeg', () => {
+    const sampleBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+    const res = analyzeRequestSchema.safeParse({
+      image: sampleBase64,
+      mimeType: 'image/jpeg',
+    });
+    assert.equal(res.success, true);
+  });
+});
+
+test('Security: Rate Limiter Middleware', async (t) => {
+  await t.test('Tillater kall under grensen og blokkerer ved overskridelse', () => {
+    const limiter = new MemoryRateLimiter({ windowMs: 1000, maxRequests: 3 });
+    const ip = '192.168.1.100';
+
+    // 1. kall: tillatt
+    const r1 = limiter.check(ip);
+    assert.equal(r1.allowed, true);
+    assert.equal(r1.remaining, 2);
+
+    // 2. kall: tillatt
+    const r2 = limiter.check(ip);
+    assert.equal(r2.allowed, true);
+    assert.equal(r2.remaining, 1);
+
+    // 3. kall: tillatt
+    const r3 = limiter.check(ip);
+    assert.equal(r3.allowed, true);
+    assert.equal(r3.remaining, 0);
+
+    // 4. kall: overskredet grense (HTTP 429)
+    const r4 = limiter.check(ip);
+    assert.equal(r4.allowed, false);
+    assert.equal(r4.remaining, 0);
+    assert.ok(r4.retryAfterSeconds >= 1);
+
+    limiter.destroy();
+  });
+
+  await t.test('Isolerer rate-grenser per IP-adresse', () => {
+    const limiter = new MemoryRateLimiter({ windowMs: 1000, maxRequests: 2 });
+    const ipA = '10.0.0.1';
+    const ipB = '10.0.0.2';
+
+    limiter.check(ipA);
+    limiter.check(ipA);
+    const blockedA = limiter.check(ipA);
+    assert.equal(blockedA.allowed, false);
+
+    // ipB skal fortsatt være tillatt
+    const allowedB = limiter.check(ipB);
+    assert.equal(allowedB.allowed, true);
+
+    limiter.destroy();
+  });
+});
+
+test('Security: App Check Verification', async (t) => {
+  await t.test('Avviser udefinert token', async () => {
+    const res = await verifyAppCheckToken(undefined);
+    assert.equal(res.verified, false);
+    assert.match(res.error || '', /Mangler/);
+  });
+
+  await t.test('Avviser tomt token', async () => {
+    const res = await verifyAppCheckToken('');
+    assert.equal(res.verified, false);
+  });
+});
