@@ -1,0 +1,279 @@
+import 'package:flutter/material.dart';
+
+enum TrafficLightColor { green, yellow, red }
+
+enum FactorSeverity { info, warning, danger }
+
+class AssessmentFactor {
+  final String title;
+  final String description;
+  final FactorSeverity severity;
+
+  AssessmentFactor({
+    required this.title,
+    required this.description,
+    required this.severity,
+  });
+
+  factory AssessmentFactor.fromJson(Map<String, dynamic> json) {
+    FactorSeverity parseSeverity(String? val) {
+      switch (val?.toLowerCase()) {
+        case 'danger':
+          return FactorSeverity.danger;
+        case 'warning':
+          return FactorSeverity.warning;
+        default:
+          return FactorSeverity.info;
+      }
+    }
+
+    return AssessmentFactor(
+      title: json['title'] ?? '',
+      description: json['description'] ?? '',
+      severity: parseSeverity(json['severity']),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'title': title,
+        'description': description,
+        'severity': severity.name,
+      };
+}
+
+class IdentifiedSubject {
+  final String? name;
+  final String? orgNumber;
+  final String? websiteUrl;
+
+  IdentifiedSubject({this.name, this.orgNumber, this.websiteUrl});
+
+  factory IdentifiedSubject.fromJson(Map<String, dynamic>? json) {
+    if (json == null) return IdentifiedSubject();
+    return IdentifiedSubject(
+      name: json['name'],
+      orgNumber: json['orgNumber'],
+      websiteUrl: json['websiteUrl'],
+    );
+  }
+}
+
+class BrregDetails {
+  final bool found;
+  final String? orgNumber;
+  final String? name;
+  final String? orgForm;
+  final String? establishedDate;
+  final bool isRegisteredInMva;
+  final bool isBankrupt;
+  final bool isLiquidating;
+  final double? ageYears;
+  final List<String> warningFlags;
+
+  BrregDetails({
+    required this.found,
+    this.orgNumber,
+    this.name,
+    this.orgForm,
+    this.establishedDate,
+    required this.isRegisteredInMva,
+    required this.isBankrupt,
+    required this.isLiquidating,
+    this.ageYears,
+    required this.warningFlags,
+  });
+
+  factory BrregDetails.fromJson(Map<String, dynamic>? json) {
+    if (json == null) {
+      return BrregDetails(
+        found: false,
+        isRegisteredInMva: false,
+        isBankrupt: false,
+        isLiquidating: false,
+        warningFlags: [],
+      );
+    }
+
+    final entity = json['entity'] as Map<String, dynamic>?;
+    return BrregDetails(
+      found: json['found'] ?? false,
+      orgNumber: entity?['organisasjonsnummer'],
+      name: entity?['navn'],
+      orgForm: entity?['organisasjonsform']?['beskrivelse'],
+      establishedDate: entity?['stiftelsesdato'] ?? entity?['registreringsdatoEnhetsregisteret'],
+      isRegisteredInMva: json['isRegisteredInMva'] ?? false,
+      isBankrupt: entity?['konkurs'] ?? false,
+      isLiquidating: entity?['underAvvikling'] ?? false,
+      ageYears: (json['ageYears'] is num) ? (json['ageYears'] as num).toDouble() : null,
+      warningFlags: List<String>.from(json['warningFlags'] ?? []),
+    );
+  }
+}
+
+class DomainDetails {
+  final String domain;
+  final bool isHttps;
+  final bool isSuspiciousTld;
+  final bool dnsResolved;
+  final List<String> flags;
+
+  DomainDetails({
+    required this.domain,
+    required this.isHttps,
+    required this.isSuspiciousTld,
+    required this.dnsResolved,
+    required this.flags,
+  });
+
+  factory DomainDetails.fromJson(Map<String, dynamic>? json) {
+    if (json == null) {
+      return DomainDetails(
+        domain: '',
+        isHttps: false,
+        isSuspiciousTld: false,
+        dnsResolved: false,
+        flags: [],
+      );
+    }
+    return DomainDetails(
+      domain: json['domain'] ?? '',
+      isHttps: json['isHttps'] ?? false,
+      isSuspiciousTld: json['isSuspiciousTld'] ?? false,
+      dnsResolved: json['dnsResolved'] ?? false,
+      flags: List<String>.from(json['flags'] ?? []),
+    );
+  }
+}
+
+class VisionDetails {
+  final String extractedText;
+  final List<String> identifiedBrands;
+  final List<String> detectedUrls;
+  final List<String> detectedOrgNumbers;
+  final List<AssessmentFactor> visualRedFlags;
+  final String summaryOfContent;
+  final bool hasSuspiciousVisualDesign;
+
+  VisionDetails({
+    required this.extractedText,
+    required this.identifiedBrands,
+    required this.detectedUrls,
+    required this.detectedOrgNumbers,
+    required this.visualRedFlags,
+    required this.summaryOfContent,
+    required this.hasSuspiciousVisualDesign,
+  });
+
+  factory VisionDetails.fromJson(Map<String, dynamic>? json) {
+    if (json == null) {
+      return VisionDetails(
+        extractedText: '',
+        identifiedBrands: [],
+        detectedUrls: [],
+        detectedOrgNumbers: [],
+        visualRedFlags: [],
+        summaryOfContent: '',
+        hasSuspiciousVisualDesign: false,
+      );
+    }
+
+    final flagsJson = (json['visualRedFlags'] as List<dynamic>?) ?? [];
+    return VisionDetails(
+      extractedText: json['extractedText'] ?? '',
+      identifiedBrands: List<String>.from(json['identifiedBrands'] ?? []),
+      detectedUrls: List<String>.from(json['detectedUrls'] ?? []),
+      detectedOrgNumbers: List<String>.from(json['detectedOrgNumbers'] ?? []),
+      visualRedFlags: flagsJson
+          .map((f) => AssessmentFactor.fromJson(f as Map<String, dynamic>))
+          .toList(),
+      summaryOfContent: json['summaryOfContent'] ?? '',
+      hasSuspiciousVisualDesign: json['hasSuspiciousVisualDesign'] ?? false,
+    );
+  }
+}
+
+class FinalAnalysisReport {
+  final String id;
+  final DateTime analyzedAt;
+  final int score; // 0-100
+  final TrafficLightColor trafficLight;
+  final String riskLevel; // 'LAV' | 'MODERAT' | 'HØY'
+  final String headline;
+  final String executiveSummary;
+  final List<AssessmentFactor> riskFactors;
+  final List<AssessmentFactor> positiveFactors;
+  final List<String> actionableAdvice;
+  final IdentifiedSubject identifiedSubject;
+  final BrregDetails? brreg;
+  final DomainDetails? domain;
+  final VisionDetails? vision;
+
+  FinalAnalysisReport({
+    required this.id,
+    required this.analyzedAt,
+    required this.score,
+    required this.trafficLight,
+    required this.riskLevel,
+    required this.headline,
+    required this.executiveSummary,
+    required this.riskFactors,
+    required this.positiveFactors,
+    required this.actionableAdvice,
+    required this.identifiedSubject,
+    this.brreg,
+    this.domain,
+    this.vision,
+  });
+
+  factory FinalAnalysisReport.fromJson(Map<String, dynamic> json) {
+    TrafficLightColor parseColor(String? val) {
+      switch (val?.toUpperCase()) {
+        case 'RED':
+          return TrafficLightColor.red;
+        case 'YELLOW':
+          return TrafficLightColor.yellow;
+        case 'GREEN':
+        default:
+          return TrafficLightColor.green;
+      }
+    }
+
+    final riskList = (json['riskFactors'] as List<dynamic>?) ?? [];
+    final posList = (json['positiveFactors'] as List<dynamic>?) ?? [];
+    final adviceList = (json['actionableAdvice'] as List<dynamic>?) ?? [];
+
+    return FinalAnalysisReport(
+      id: json['id'] ?? 'scan-unknown',
+      analyzedAt: json['analyzedAt'] != null
+          ? DateTime.tryParse(json['analyzedAt']) ?? DateTime.now()
+          : DateTime.now(),
+      score: (json['score'] is num) ? (json['score'] as num).toInt() : 50,
+      trafficLight: parseColor(json['trafficLight']),
+      riskLevel: json['riskLevel'] ?? 'MODERAT',
+      headline: json['headline'] ?? 'Analyse fullført',
+      executiveSummary: json['executiveSummary'] ?? '',
+      riskFactors: riskList
+          .map((f) => AssessmentFactor.fromJson(f as Map<String, dynamic>))
+          .toList(),
+      positiveFactors: posList
+          .map((f) => AssessmentFactor.fromJson(f as Map<String, dynamic>))
+          .toList(),
+      actionableAdvice: adviceList.map((a) => a.toString()).toList(),
+      identifiedSubject: IdentifiedSubject.fromJson(json['identifiedSubject']),
+      brreg: json['brreg'] != null ? BrregDetails.fromJson(json['brreg']) : null,
+      domain: json['domain'] != null ? DomainDetails.fromJson(json['domain']) : null,
+      vision: json['vision'] != null ? VisionDetails.fromJson(json['vision']) : null,
+    );
+  }
+
+  Color get statusColor {
+    switch (trafficLight) {
+      case TrafficLightColor.green:
+        return const Color(0xFF10B981); // Emerald 500
+      case TrafficLightColor.yellow:
+        return const Color(0xFFF59E0B); // Amber 500
+      case TrafficLightColor.red:
+        return const Color(0xFFEF4444); // Red 500
+    }
+  }
+}
