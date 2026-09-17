@@ -33,3 +33,5 @@ Thumbs.db
 *.mobileprovision
 google-services.json
 GoogleService-Info.plist
+
+gdrive-key.json

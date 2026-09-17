@@ -38,8 +38,6 @@ export class OrchestratorService {
           effectiveQuery = visionResult.detectedUrls[0];
         } else if (visionResult.identifiedBrands && visionResult.identifiedBrands.length > 0) {
           effectiveQuery = visionResult.identifiedBrands[0];
-        } else if (visionResult.extractedText) {
-          effectiveQuery = visionResult.extractedText.slice(0, 50);
         }
       }
     }
@@ -51,7 +49,8 @@ export class OrchestratorService {
 
     const brregCandidate =
       (visionResult?.detectedOrgNumbers && visionResult.detectedOrgNumbers[0]) ||
-      (!this.looksLikeUrl(effectiveQuery) ? effectiveQuery : (visionResult?.identifiedBrands && visionResult.identifiedBrands[0]) || '');
+      (visionResult?.identifiedBrands && visionResult.identifiedBrands[0]) ||
+      (request.query && !this.looksLikeUrl(request.query) ? request.query.trim() : '');
 
     // 3. Parallell innhenting av eksterne kilder
     const [brregResult, domainResult, reputationResult] = await Promise.all([

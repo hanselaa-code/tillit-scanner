@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import axios from 'axios';
 import {
   VisionAnalysisResult,
   BrregCheckResult,
@@ -13,46 +14,82 @@ import {
 export class GeminiService {
   private genAI: GoogleGenerativeAI | null = null;
   private modelName: string;
+  private visionApiKey: string;
 
   constructor() {
     const apiKey = process.env.GEMINI_API_KEY || '';
+    this.visionApiKey = process.env.GOOGLE_VISION_API_KEY || apiKey;
     if (apiKey) {
-      this.genAI = new GoogleGenerativeAI(apiKey);
+      try {
+        this.genAI = new GoogleGenerativeAI(apiKey);
+      } catch (e) {
+        this.genAI = null;
+      }
     }
-    // gemini-2.5-flash eller gemini-1.5-flash som fallback
     this.modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
   }
 
   /**
-   * Steg 1: Visjonsanalyse på opplastet skjermbilde/bilde
+   * Steg 1: Ekte visjonsanalyse via Google Cloud Vision API og multimodal KI
    */
   public async analyzeImage(imageBase64: string, mimeType: string = 'image/jpeg'): Promise<VisionAnalysisResult> {
-    if (!this.genAI) {
-      return this.mockVisionAnalysis(imageBase64);
+    const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+
+    // 1. Forsøk ekte Google Cloud Vision OCR og logogjenkjenning
+    if (this.visionApiKey) {
+      try {
+        const visionResponse = await axios.post(
+          `https://vision.googleapis.com/v1/images:annotate?key=${this.visionApiKey}`,
+          {
+            requests: [
+              {
+                image: { content: cleanBase64 },
+                features: [
+                  { type: 'TEXT_DETECTION' },
+                  { type: 'LOGO_DETECTION' }
+                ],
+              },
+            ],
+          },
+          { timeout: 15000 }
+        );
+
+        const annotation = visionResponse.data?.responses?.[0];
+        const fullText = annotation?.fullTextAnnotation?.text || '';
+        const detectedLogos: string[] = (annotation?.logoAnnotations || [])
+          .map((logo: any) => logo.description)
+          .filter(Boolean);
+
+        return this.parseVisionTextAndLogos(fullText, detectedLogos);
+      } catch (visionError: any) {
+        console.warn('Google Cloud Vision OCR feilet:', visionError.message);
+      }
     }
 
-    try {
-      const model = this.genAI.getGenerativeModel({
-        model: this.modelName,
-        generationConfig: {
-          responseMimeType: 'application/json',
-          temperature: 0.1,
-        },
-      });
+    // 2. Forsøk Gemini Vision hvis konfigurert
+    if (this.genAI) {
+      try {
+        const model = this.genAI.getGenerativeModel({
+          model: this.modelName,
+          generationConfig: {
+            responseMimeType: 'application/json',
+            temperature: 0.1,
+          },
+        });
 
-      const prompt = `
-Du er en ledende multimodal rettsmedisinsk svindel- og forfalskningsanalytiker for norske forbrukere (ScanSafe / Tillit).
+        const prompt = `
+Du er en multimodal svindel- og forfalskningsanalytiker for norske forbrukere (ScanSafe / Tillit).
 Analyser dette bildet nøye (kan være skjermbilde av Instagram/Facebook/TikTok-annonse, plakat, e-post, SMS, eller nettbutikk).
 
 Svar KUN med et gyldig JSON-objekt med nøyaktig denne strukturen:
 {
   "extractedText": "all synlig tekst ekstrahert nøyaktig",
-  "identifiedBrands": ["merkevarer som hevdes å stå bak eller etterlignes, f.eks. 'DNB', 'Posten', 'VG']",
+  "identifiedBrands": ["merkevarer som hevdes å stå bak eller etterlignes"],
   "detectedUrls": ["eventuelle nettadresser, lenker eller domener synlig i bildet"],
   "detectedOrgNumbers": ["eventuelle 9-sifrede norske organisasjonsnumre funnet"],
   "visualRedFlags": [
     {
-      "title": "Kort tittel på faresignal (f.eks. 'Falsk nyhetsartikkel', 'Manipulert kjendisutsagn', 'Aggressivt tidspress')",
+      "title": "Kort tittel på faresignal",
       "description": "Konkret objektiv beskrivelse av hva som er observert i bildet",
       "severity": "low" | "medium" | "high"
     }
@@ -62,20 +99,31 @@ Svar KUN med et gyldig JSON-objekt med nøyaktig denne strukturen:
 }
 `;
 
-      const imagePart = {
-        inlineData: {
-          data: imageBase64.replace(/^data:image\/\w+;base64,/, ''),
-          mimeType,
-        },
-      };
+        const imagePart = {
+          inlineData: {
+            data: cleanBase64,
+            mimeType,
+          },
+        };
 
-      const result = await model.generateContent([prompt, imagePart]);
-      const text = result.response.text();
-      return JSON.parse(text) as VisionAnalysisResult;
-    } catch (error: any) {
-      console.error('Gemini vision analysis failed, using structured fallback:', error.message);
-      return this.mockVisionAnalysis(imageBase64);
+        const result = await model.generateContent([prompt, imagePart]);
+        const text = result.response.text();
+        return JSON.parse(text) as VisionAnalysisResult;
+      } catch (geminiError: any) {
+        console.warn('Gemini vision feilet:', geminiError.message);
+      }
     }
+
+    // 3. Hvis verken Vision eller Gemini fant noe
+    return {
+      extractedText: '',
+      identifiedBrands: [],
+      detectedUrls: [],
+      detectedOrgNumbers: [],
+      visualRedFlags: [],
+      summaryOfContent: 'Kunne ikke hente ut tekst eller kjente merkevarer fra bildet.',
+      hasSuspiciousVisualDesign: false,
+    };
   }
 
   /**
@@ -350,34 +398,113 @@ Returner KUN gyldig JSON med følgende struktur:
     };
   }
 
-  private mockVisionAnalysis(base64: string): VisionAnalysisResult {
-    // Hvis API-nøkkel ikke er satt ennå, returner realistiske dummy-funn for demonstrasjon
-    const isMockScam = base64.length % 2 === 0;
+  private parseVisionTextAndLogos(fullText: string, detectedLogos: string[]): VisionAnalysisResult {
+    const cleanText = fullText.trim();
+    const lowerText = cleanText.toLowerCase();
+
+    // 1. Gjenkjenn nettadresser og domener
+    const urlRegex = /(?:https?:\/\/)?(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(?:\/[^\s]*)?/gi;
+    const rawUrls = cleanText.match(urlRegex) || [];
+    const detectedUrls = Array.from(new Set(rawUrls.map(u => u.trim()))).filter(
+      u => !u.endsWith('.jpg') && !u.endsWith('.png') && !u.endsWith('.jpeg')
+    );
+
+    // 2. Gjenkjenn 9-sifrede norske organisasjonsnumre
+    const orgRegex = /\b(\d{3}\s?\d{3}\s?\d{3})\b/g;
+    const orgMatches = cleanText.match(orgRegex) || [];
+    const detectedOrgNumbers = Array.from(new Set(orgMatches.map(m => m.replace(/\s+/g, '')))).filter(
+      num => num.length === 9
+    );
+
+    // 3. Merkevarer (logos + tekstsøk)
+    const identifiedBrands: string[] = [...detectedLogos];
+    const knownBrands = [
+      'Vipps', 'DNB', 'Posten', 'PostNord', 'Elkjøp', 'Power', 'Komplett',
+      'Skatteetaten', 'Politiet', 'Helsenorge', 'NAV', 'Finn.no', 'Telenor',
+      'Telia', 'SpareBank 1', 'Nordea', 'Storebrand', 'Gjensidige', 'NRK',
+      'VG', 'Dagbladet', 'TV 2', 'Norwegian', 'SAS', 'Coop', 'Rema 1000', 'Meny'
+    ];
+
+    for (const brand of knownBrands) {
+      const regex = new RegExp(`\\b${brand}\\b`, 'i');
+      if (regex.test(cleanText) && !identifiedBrands.some(b => b.toLowerCase() === brand.toLowerCase())) {
+        identifiedBrands.push(brand);
+      }
+    }
+
+    // 4. Faresignaler i teksten
+    const visualRedFlags: any[] = [];
+
+    // Falske nyheter / kjendis
+    if (
+      (lowerText.includes('avslør') || lowerText.includes('hemmelighet') || lowerText.includes('skandale')) &&
+      (lowerText.includes('tjente') || lowerText.includes('million') || lowerText.includes('rik') || lowerText.includes('invester'))
+    ) {
+      visualRedFlags.push({
+        title: 'Manipulert kjendisutsagn eller sensasjonspåstand',
+        description: 'Teksten inneholder typiske formuleringer fra falske nyhetsartikler og kjendissvindler.',
+        severity: 'high',
+      });
+    }
+
+    // Phishing / sperret konto
+    if (
+      lowerText.includes('sperret') ||
+      lowerText.includes('oppgi bankid') ||
+      lowerText.includes('bekreft kort') ||
+      lowerText.includes('sikkerhetsoppdatering') ||
+      (lowerText.includes('pakke') && (lowerText.includes('tollgebyr') || lowerText.includes('forsinket') || lowerText.includes('levering feilet')))
+    ) {
+      visualRedFlags.push({
+        title: 'Mistenkelig hastevarsel / phishing-mønster',
+        description: 'Meldingen etterligner typiske phishing-forsøk om sperret konto eller pakkelevering.',
+        severity: 'high',
+      });
+    }
+
+    // Aggressivt tidspress
+    if (
+      lowerText.includes('kun få plasser') ||
+      lowerText.includes('kun 3 plasser') ||
+      lowerText.includes('kun 5 plasser') ||
+      lowerText.includes('begrenset antall') ||
+      lowerText.includes('i kveld før midnatt') ||
+      lowerText.includes('siste sjanse')
+    ) {
+      visualRedFlags.push({
+        title: 'Aggressivt tidspress',
+        description: 'Teksten forsøker å framprovosere overilte handlinger ved å påstå ekstrem tidsnød eller plassmangel.',
+        severity: 'medium',
+      });
+    }
+
+    // Mistenkelig TLD i tekst
+    const suspiciousTlds = ['.top', '.xyz', '.cfd', '.click', '.buzz', '.monster', '.vip', '.rest'];
+    if (detectedUrls.some(u => suspiciousTlds.some(tld => u.toLowerCase().includes(tld)))) {
+      visualRedFlags.push({
+        title: 'Høyrisiko toppdomene funnet i bildet',
+        description: 'Nettadressen bruker et toppdomene (.top, .xyz osv.) som svært ofte knyttes til svindelkampanjer.',
+        severity: 'high',
+      });
+    }
+
+    let summaryOfContent = '';
+    if (cleanText.length > 0) {
+      summaryOfContent = cleanText.length > 120 
+        ? `${cleanText.slice(0, 120)}...` 
+        : cleanText;
+    } else {
+      summaryOfContent = 'Ingen lesbar tekst eller kjente merkevarer ble oppdaget i bildet.';
+    }
+
     return {
-      extractedText: isMockScam 
-        ? 'SENASJONELT: Kjendis avslører hemmelig investering i Dagsrevyen! Begrenset tilbud, kun 5 plasser igjen!'
-        : 'Velkommen til Nordisk Helse & Velvære AS. Org.nr: 923456789. Besøk vår nettbutikk.',
-      identifiedBrands: isMockScam ? ['NRK', 'Dagsrevyen'] : ['Nordisk Helse'],
-      detectedUrls: isMockScam ? ['https://invester-kjapt.top/signup'] : ['https://nordiskhelse.no'],
-      detectedOrgNumbers: isMockScam ? [] : ['923456789'],
-      visualRedFlags: isMockScam
-        ? [
-            {
-              title: 'Manipulert nyhetsdesign',
-              description: 'Bildet bruker et visuelt oppsett som minner om NRK Dagsrevyen for å skape falsk troverdighet.',
-              severity: 'high',
-            },
-            {
-              title: 'Aggressivt tidspress',
-              description: 'Påstand om at det kun er «5 plasser igjen» brukes ofte for å hindre at offeret tenker seg om.',
-              severity: 'medium',
-            },
-          ]
-        : [],
-      summaryOfContent: isMockScam
-        ? 'Mistenkelig annonse som fremstiller en investeringsmulighet ved hjelp av falsk redaksjonell troverdighet.'
-        : 'Legitimt markedsføringsmateriell for en registrert norsk aktør.',
-      hasSuspiciousVisualDesign: isMockScam,
+      extractedText: cleanText,
+      identifiedBrands,
+      detectedUrls,
+      detectedOrgNumbers,
+      visualRedFlags,
+      summaryOfContent,
+      hasSuspiciousVisualDesign: visualRedFlags.length > 0,
     };
   }
 }

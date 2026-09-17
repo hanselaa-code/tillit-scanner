@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import '../models/analysis_result.dart';
@@ -72,9 +71,37 @@ class ApiService {
     XFile? imageFile,
     String? query,
   }) {
+    if (imageFile != null) {
+      return FinalAnalysisReport(
+        id: 'offline-${DateTime.now().millisecondsSinceEpoch}',
+        analyzedAt: DateTime.now(),
+        score: 50,
+        trafficLight: TrafficLightColor.yellow,
+        riskLevel: 'MODERAT',
+        headline: 'Frakoblet: Kunne ikke nå analysetjenesten',
+        executiveSummary:
+            'Bildet kunne ikke sendes til analyseserveren for multimodal bildeanalyse. Sjekk at mobilen har aktiv internettforbindelse (WiFi eller mobildata) og prøv igjen.',
+        riskFactors: [
+          AssessmentFactor(
+            title: 'Ingen kontakt med analysetjenesten',
+            description:
+                'Serveren svarte ikke innen tidsfristen. Bildet ble derfor ikke analysert.',
+            severity: FactorSeverity.warning,
+          ),
+        ],
+        positiveFactors: [],
+        actionableAdvice: [
+          'Sjekk internett- eller mobildatatilkoblingen din og prøv på nytt.',
+          'Dersom problemet vedvarer, kan du søke manuelt på firmanavn, org.nr eller nettadresse.',
+        ],
+        identifiedSubject: IdentifiedSubject(
+          name: 'Ukjent bildeinnhold (frakoblet)',
+        ),
+      );
+    }
+
     final cleanQuery = query?.toLowerCase() ?? '';
-    final isLikelyScam = imageFile != null ||
-        cleanQuery.contains('krypto') ||
+    final isLikelyScam = cleanQuery.contains('krypto') ||
         cleanQuery.contains('invester') ||
         cleanQuery.contains('.top') ||
         cleanQuery.contains('billig');
@@ -90,12 +117,6 @@ class ApiService {
         executiveSummary:
             'Analysen indikerer et aggressivt svindelmønster som misbruker kjente merkevarer for å lokke forbrukere til uregulerte betalinger eller falske investeringer.',
         riskFactors: [
-          AssessmentFactor(
-            title: 'Falsk redaksjonell artikkel',
-            description:
-                'Bildet etterligner en etablert norsk nettavis (f.eks. NRK eller VG) med oppdiktede sitater og manipulert journalistisk layout.',
-            severity: FactorSeverity.danger,
-          ),
           AssessmentFactor(
             title: 'Mistenkelig nettadresse (.top / .xyz)',
             description:
@@ -122,7 +143,7 @@ class ApiService {
           'Dersom du allerede har oppgitt kortopplysninger, sperr kortet umiddelbart i nettbanken din.',
         ],
         identifiedSubject: IdentifiedSubject(
-          name: query?.isNotEmpty == true ? query : 'Mistenkelig annonsekampanje',
+          name: query?.isNotEmpty == true ? query : 'Mistenkelig kampanje',
           websiteUrl: 'https://invester-naa.top/login',
         ),
         brreg: BrregDetails(
@@ -141,22 +162,6 @@ class ApiService {
             'Nettadressen benytter høyrisiko-toppdomene (.top)',
             'Mangler kryptert tilkobling',
           ],
-        ),
-        vision: VisionDetails(
-          extractedText:
-              'HEMMELIGHETEN: Kjendis tjente millioner! Bli med før systemet stenges i kveld!',
-          identifiedBrands: ['NRK', 'Dagsrevyen'],
-          detectedUrls: ['https://invester-naa.top/login'],
-          detectedOrgNumbers: [],
-          visualRedFlags: [
-            AssessmentFactor(
-              title: 'Manipulert kjendisutsagn',
-              description: 'Kjendisen har aldri anbefalt denne plattformen.',
-              severity: FactorSeverity.danger,
-            ),
-          ],
-          summaryOfContent: 'Falsk investeringskampanje med manipulert tillitsvekkende design.',
-          hasSuspiciousVisualDesign: true,
         ),
       );
     } else {
