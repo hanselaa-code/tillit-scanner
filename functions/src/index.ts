@@ -13,7 +13,13 @@ if (!admin.apps.length) {
 }
 
 const corsHandler = cors({ origin: true });
-const orchestrator = new OrchestratorService();
+let _orchestrator: OrchestratorService | null = null;
+function getOrchestrator(): OrchestratorService {
+  if (!_orchestrator) {
+    _orchestrator = new OrchestratorService();
+  }
+  return _orchestrator;
+}
 
 /**
  * Hovedendepunkt for analyse av bilde, URL eller firmanavn.
@@ -58,7 +64,7 @@ export const analyzeEntity = onRequest(
           return;
         }
 
-        const report = await orchestrator.analyze(body);
+        const report = await getOrchestrator().analyze(body);
         res.status(200).json(report);
       } catch (error: any) {
         console.error('Kritisk feil under analyse:', error);

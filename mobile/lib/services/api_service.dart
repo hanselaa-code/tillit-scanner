@@ -8,11 +8,11 @@ class ApiService {
   // Standard-URL for lokal Firebase Emulator.
   // På Android Emulator brukes 10.0.2.2 for å nå vertens localhost.
   // På iOS / macOS / Windows brukes 127.0.0.1 eller localhost.
+  static const String liveCloudFunctionUrl =
+      'https://us-central1-tillit-scanner-hanselaa.cloudfunctions.net/analyzeEntity';
+
   static String get defaultBaseUrl {
-    if (Platform.isAndroid) {
-      return 'http://10.0.2.2:5001/demo-scansafe/us-central1/analyzeEntity';
-    }
-    return 'http://127.0.0.1:5001/demo-scansafe/us-central1/analyzeEntity';
+    return liveCloudFunctionUrl;
   }
 
   final String endpointUrl;
