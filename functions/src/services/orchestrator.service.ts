@@ -64,30 +64,49 @@ export class OrchestratorService {
 
     // Finn beste Brreg-kandidat med smart prioritering:
     // 1. Organisasjonsnummer fra bilde (mest presist)
-    // 2. Hvis bildet inneholder et merkenavn som matcher domenet (f.eks. kicks.no + KICKS)
-    // 3. Merkenavn fra visjonsanalyse
-    // 4. Domene-stammen (f.eks. søk etter kicks.no gir Brreg-søk på "kicks")
-    // 5. Manuell tekstforespørsel
+    // 2. Domenet fra bildet (hvis nettadresse er oppdaget): Domenet er nettsidens definitive identitet!
+    //    Hvis getinspired.no er i adressefeltet, er det foretaket bak getinspired.no som skal analyseres,
+    //    IKKE tilfeldige merkevarer eller tilbudstekster på siden (som "Spar stort", "Nike", "VG Deals").
+    // 3. Merkenavn fra visjonsanalyse (for fysiske produkter, emballasje, logoer, annonser uten URL)
+    // 4. Manuell tekstforespørsel
     let brregCandidate = '';
+    let brandForReviews = '';
+
     if (visionResult?.detectedOrgNumbers && visionResult.detectedOrgNumbers.length > 0) {
       brregCandidate = visionResult.detectedOrgNumbers[0];
-    } else if (
-      domainBrandStem &&
-      visionResult?.identifiedBrands?.some((b) => b.toLowerCase() === domainBrandStem.toLowerCase())
-    ) {
-      const matchingBrand = visionResult.identifiedBrands.find(
-        (b) => b.toLowerCase() === domainBrandStem.toLowerCase()
-      )!;
-      brregCandidate = matchingBrand;
+      brandForReviews = brregCandidate;
+    } else if (domainBrandStem) {
+      // Domenet er nettsidens kjerneidentitet. Finn beste navneform basert på domenet:
+      // Sjekk om teksten i bildet har en formatert versjon (CamelCase eller ord) av domenet,
+      // f.eks. "GetInspired" i teksten for domenet "getinspired.no" -> "Get Inspired"
+      const textWithoutUrls = (visionResult?.extractedText || '').replace(
+        /(?:https?:\/\/)?(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(?:\/[^\s]*)?/gi,
+        ' '
+      );
+      const tokens = textWithoutUrls.match(/[a-zA-ZæøåÆØÅ0-9]+/g) || [];
+      const exactToken = tokens.find(
+        (t) => t.toLowerCase() === domainBrandStem.toLowerCase()
+      );
+
+      if (exactToken) {
+        // Splitt CamelCase / PascalCase: "GetInspired" -> "Get Inspired"
+        const splitCamel = exactToken.replace(/([a-zæøå0-9])([A-ZÆØÅ])/g, '$1 $2').trim();
+        brregCandidate = splitCamel;
+      } else {
+        // Sjekk om noen av identifiedBrands matcher domenet (f.eks. "Kicks" for "kicks.no")
+        const matchingBrand = visionResult?.identifiedBrands?.find(
+          (b) => b.toLowerCase().replace(/[^a-z0-9]/g, '') === domainBrandStem.toLowerCase()
+        );
+        brregCandidate = matchingBrand || domainBrandStem;
+      }
+      brandForReviews = brregCandidate;
     } else if (visionResult?.identifiedBrands && visionResult.identifiedBrands.length > 0) {
       brregCandidate = visionResult.identifiedBrands[0];
-    } else if (domainBrandStem) {
-      brregCandidate = domainBrandStem;
+      brandForReviews = brregCandidate;
     } else if (request.query) {
       brregCandidate = request.query.trim();
+      brandForReviews = brregCandidate;
     }
-
-    const brandForReviews = visionResult?.identifiedBrands?.[0] || domainBrandStem || brregCandidate;
 
     // 3. Parallell innhenting av eksterne kilder (Brreg, Domene, Omdømme, Google Reviews & Trustpilot)
     const [brregResult, domainResult, reputationResult, reviewsResult] = await Promise.all([

@@ -84,11 +84,11 @@ export class ReviewsService {
     brandCandidate?: string,
     cleanDomain?: string
   ): string {
-    if (cleanDomain) {
-      return cleanDomain;
-    }
     if (brandCandidate && brandCandidate.trim().length > 1) {
       return brandCandidate.trim();
+    }
+    if (cleanDomain) {
+      return cleanDomain;
     }
     return query.trim();
   }
@@ -133,17 +133,19 @@ export class ReviewsService {
 
     const first = places[0];
     const placeName = first.displayName?.text || '';
-    const placeLower = placeName.toLowerCase();
+    const returnedName = placeName.toLowerCase().replace(/[^a-zæøå0-9]/g, '');
     const queryLower = textQuery.toLowerCase();
-    const domainLower = (fallbackDomain || '').toLowerCase().replace(/\.[a-z]+$/, '');
+    const queryNorm = queryLower.replace(/[^a-zæøå0-9]/g, '');
+    const domainNorm = (fallbackDomain || '').toLowerCase().replace(/\.[a-z]+$/, '').replace(/[^a-zæøå0-9]/g, '');
 
     // Sikkerhetsrutine: Sjekk at Google Places-oppføringen faktisk har tilknytning til søket
     // Forhindrer at tilfeldige bedrifter/butikker vises hvis søkeordet ikke matcher
     const queryWords = queryLower.split(/\s+/).filter((w) => w.length > 2);
     const matchesQuery =
-      queryWords.some((w) => placeLower.includes(w)) ||
-      placeLower.includes(queryLower) ||
-      (domainLower.length > 2 && placeLower.includes(domainLower));
+      queryWords.some((w) => returnedName.includes(w)) ||
+      returnedName.includes(queryNorm) ||
+      queryNorm.includes(returnedName) ||
+      (domainNorm.length > 2 && (returnedName.includes(domainNorm) || domainNorm.includes(returnedName)));
 
     if (!matchesQuery) {
       return { found: false };

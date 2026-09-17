@@ -516,7 +516,24 @@ Returner KUN gyldig JSON med følgende struktur:
       }
     }
 
-    // 3. Omfattende ordbok med etablerte norske og internasjonale merkevarer
+    // 3. Tekst strippet for nettadresser og URL-parametere (forhindrer at utm_campaign=VG eller utm_source=facebook matcher som merkevare)
+    const textWithoutUrls = cleanText.replace(/(?:https?:\/\/)?(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(?:\/[^\s]*)?/gi, ' ');
+
+    // 4. CamelCase / PascalCase merkevaregjenkjenning (f.eks. "GetInspired" -> "Get Inspired", "BliVakker", "PostNord")
+    const camelMatches = textWithoutUrls.match(/\b([A-Z][a-z0-9]+[A-Z][a-zA-Z0-9]*)\b/g) || [];
+    for (const cm of camelMatches) {
+      if (!isStopword(cm) && cm.length >= 4 && cm.length <= 25) {
+        if (!identifiedBrands.some((b) => b.toLowerCase() === cm.toLowerCase())) {
+          identifiedBrands.push(cm);
+        }
+        const split = cm.replace(/([a-z0-9])([A-Z])/g, '$1 $2').trim();
+        if (split !== cm && !identifiedBrands.some((b) => b.toLowerCase() === split.toLowerCase())) {
+          identifiedBrands.push(split);
+        }
+      }
+    }
+
+    // 5. Omfattende ordbok med etablerte norske og internasjonale merkevarer
     const knownBrands = [
       // Norske næringsmidler, meieri og forbruksvarer
       'Tine', 'Gilde', 'Prior', 'Nidar', 'Freia', 'Orkla', 'Ringnes', 'Bama',
@@ -524,27 +541,28 @@ Returner KUN gyldig JSON med følgende struktur:
       'Q-Meieriene', 'Kavli', 'Mills', 'Nortura', 'Synnøve Finden', 'Lofoten',
       'Grandiosa', 'Fjordland', 'Lerum', 'Idun', 'Bremykt', 'Jarlsberg', 'Norvegia',
       // Butikker, faghandel og nettbutikker
-      'Kicks', 'Elkjøp', 'Power', 'Komplett', 'Zalando', 'Boozt', 'Jula', 'Biltema',
+      'Get Inspired', 'GetInspired', 'Kicks', 'Elkjøp', 'Power', 'Komplett', 'Zalando', 'Boozt', 'Jula', 'Biltema',
       'Clas Ohlson', 'XXL', 'Sport 1', 'Fjellsport', 'Farmasiet', 'Apotek 1',
       'Vitusapotek', 'Boots Apotek', 'Outland', 'Norli', 'Ark', 'Lyko', 'Normal',
-      'Europris', 'Kid Interiør', 'Kid', 'Princess', 'Ikea', 'Bohus', 'Skeidar',
-      'Jysk', 'Coop', 'Rema 1000', 'Meny', 'Kiwi', 'Spar', 'Joker', 'Bunnpris',
+      'Europris', 'Kid Interiør', 'Princess', 'Ikea', 'Bohus', 'Skeidar',
+      'Jysk', 'Coop', 'Rema 1000', 'Meny', 'Kiwi', 'Eurospar', 'Joker', 'Bunnpris',
+      'Sparkjøp', 'Spar Kjøp', 'Blivakker', 'Bli Vakker', 'Milrab', 'Gymgrossisten',
       // Telekom, Bank, Forsikring & Offentlig
       'Vipps', 'DNB', 'SpareBank 1', 'Nordea', 'Storebrand', 'Gjensidige', 'Posten',
       'PostNord', 'Telenor', 'Telia', 'Ice', 'Finn.no', 'Schibsted', 'Skatteetaten',
-      'Politiet', 'Helsenorge', 'NAV', 'NRK', 'VG', 'Dagbladet', 'TV 2',
+      'Politiet', 'Helsenorge', 'NAV', 'NRK', 'Dagbladet', 'TV 2',
       'Norwegian', 'SAS', 'Widerøe', 'Vy'
     ];
 
     for (const brand of knownBrands) {
       const regex = new RegExp(`\\b${brand}\\b`, 'i');
-      if (regex.test(cleanText) && !identifiedBrands.some(b => b.toLowerCase() === brand.toLowerCase())) {
+      if (regex.test(textWithoutUrls) && !identifiedBrands.some(b => b.toLowerCase() === brand.toLowerCase())) {
         identifiedBrands.push(brand);
       }
     }
 
-    // 4. Spesifikk merkevaregjenkjenning foran "Club", "Klubb", "Store", "Shop"
-    const clubMatch = cleanText.match(/([A-ZÆØÅ][a-zA-ZæøåÆØÅ0-9]{2,})\s+(Club|Klubb|Retail|Store|Shop|Nettbutikk)/);
+    // 6. Spesifikk merkevaregjenkjenning foran "Club", "Klubb", "Store", "Shop"
+    const clubMatch = textWithoutUrls.match(/([A-ZÆØÅ][a-zA-ZæøåÆØÅ0-9]{2,})\s+(Club|Klubb|Retail|Store|Shop|Nettbutikk)/);
     if (clubMatch) {
       const brand = clubMatch[1];
       if (!isStopword(brand) && !identifiedBrands.some(b => b.toLowerCase() === brand.toLowerCase())) {
