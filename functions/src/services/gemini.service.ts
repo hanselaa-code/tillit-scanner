@@ -457,10 +457,11 @@ Returner KUN gyldig JSON med følgende struktur:
     );
 
     // 3. Merkevarer (logos + kjente merkevarer + overskrift/header)
-    const identifiedBrands: string[] = [...detectedLogos];
+    const identifiedBrands: string[] = [];
 
-    // Norske og vanlige UI-ord, navigasjon, preposisjoner og nettleserelementer som ALDRI skal tolkes som butikknavn
-    const UI_STOPWORDS = new Set([
+    // Norske og vanlige UI-ord, navigasjon, preposisjoner, emballasje- og matvareord som ALDRI skal tolkes som firmanavn
+    const STOPWORDS = new Set([
+      // Navigasjon og nettside-UI
       'meny', 'menu', 'hjem', 'home', 'søk', 'search', 'finn butikk', 'finn',
       'logg inn', 'login', 'logg ut', 'logout', 'favoritter', 'favorites',
       'handlekurv', 'kurv', 'cart', 'kasse', 'checkout', 'kjøp', 'bestill',
@@ -473,26 +474,66 @@ Returner KUN gyldig JSON med følgende struktur:
       'mot', 'etter', 'før', 'uten', 'hos', 'mellom', 'rundt', 'gjennom', 'blant',
       'gratis', 'ny', 'nye', 'alt', 'alle', 'ingen', 'mange', 'mest', 'vår', 'våre',
       'din', 'ditt', 'dine', 'min', 'mitt', 'mine', 'og', 'eller', 'men', 'som', 'at',
-      // Nettleserelementer og faner (Chrome/Safari/Edge) som ofte havner øverst på skjermbilder
+      // Nettleserfaner (Chrome/Safari)
       'google', 'google chrome', 'chrome', 'safari', 'edge', 'microsoft edge',
       'firefox', 'opera', 'brave', 'ny fane', 'new tab', 'fane', 'faner', 'tab', 'tabs',
       'innboks', 'inbox', 'bokmerker', 'bookmarks', 'tillegg', 'extensions',
-      'nedlastinger', 'downloads', 'historikk', 'history', 'søk på google'
+      'nedlastinger', 'downloads', 'historikk', 'history', 'søk på google',
+      // Emballasje, matvarer og produksjon (forhindrer at ord på melkekartonger tolkes som firma)
+      'melkesjokolade', 'sjokolade', 'lettmelk', 'helmelk', 'skummet', 'fløte',
+      'yoghurt', 'smør', 'ost', 'rømme', 'kjølevare', 'best før', 'siste forbruksdag',
+      'ingredienser', 'næringsinnhold', 'energi', 'fett', 'karbohydrater', 'sukkerarter',
+      'sukker', 'protein', 'salt', 'pasteurisert', 'homogenisert', 'nettoinnhold',
+      'volum', 'liter', 'dl', 'cl', 'ml', 'gram', 'kg', 'returkartong', 'pant',
+      'kildesortering', 'resirkulering', 'oppbevares', 'åpnet', 'uåpnet', 'holdbarhet',
+      'parti', 'batch', 'testet', 'stesta', 'testa', 'smak', 'oppskrift', 'god',
+      'smaker', 'fersk', 'ekte', 'norsk', 'premium', 'original', 'nyhet', 'kvalitet'
     ]);
 
-    const isUIStopword = (word: string): boolean => {
+    const isStopword = (word: string): boolean => {
       const clean = word.toLowerCase().replace(/[^a-zæøå0-9]/g, '').trim();
-      return UI_STOPWORDS.has(clean);
+      return STOPWORDS.has(clean) || STOPWORDS.has(word.toLowerCase().trim());
     };
 
-    // 1. Prioriter etablerte kjente handelsaktører i teksten først
+    // 1. Logoer fra Cloud Vision API (høyeste visuelle pålitelighet)
+    for (const logo of detectedLogos) {
+      if (!isStopword(logo) && !identifiedBrands.includes(logo)) {
+        identifiedBrands.push(logo);
+      }
+    }
+
+    // 2. Formelle firmanavn i teksten med selskapsform (f.eks. "TINE SA", "KICKS NORGE AS", "KOMPLETT ASA")
+    const corpRegex = /\b([A-ZÆØÅ][a-zA-ZæøåÆØÅ0-9\s&]{2,30}?)\s+(AS|ASA|SA|BA|DA|ANS|ENK|NUF)\b/g;
+    let corpMatch;
+    while ((corpMatch = corpRegex.exec(cleanText)) !== null) {
+      const rawBase = corpMatch[1].trim();
+      // Fjern ledetekster som "Produsert av", "Levert av" osv.
+      const cleanBase = rawBase.replace(/^(Produsert|Levert|Distribuert|Importert|Kjøpt)\s+av\s+/i, '').trim();
+      if (cleanBase.length >= 2 && !isStopword(cleanBase)) {
+        if (!identifiedBrands.some(b => b.toLowerCase() === cleanBase.toLowerCase())) {
+          identifiedBrands.push(cleanBase);
+        }
+      }
+    }
+
+    // 3. Omfattende ordbok med etablerte norske og internasjonale merkevarer
     const knownBrands = [
-      'Kicks', 'Vipps', 'DNB', 'Posten', 'PostNord', 'Elkjøp', 'Komplett',
-      'Skatteetaten', 'Politiet', 'Helsenorge', 'NAV', 'Finn.no', 'Telenor',
-      'Telia', 'SpareBank 1', 'Nordea', 'Storebrand', 'Gjensidige', 'NRK',
-      'VG', 'Dagbladet', 'TV 2', 'Norwegian', 'SAS', 'Coop', 'Rema 1000',
-      'Zalando', 'Boozt', 'Jula', 'Biltema', 'Clas Ohlson', 'XXL', 'Sport 1',
-      'Fjellsport', 'Farmasiet', 'Apotek 1', 'Outland', 'Norli', 'Ark', 'Lyko'
+      // Norske næringsmidler, meieri og forbruksvarer
+      'Tine', 'Gilde', 'Prior', 'Nidar', 'Freia', 'Orkla', 'Ringnes', 'Bama',
+      'Stabburet', 'Maarud', 'Sørlandschips', 'Diplom-Is', 'Hennig-Olsen',
+      'Q-Meieriene', 'Kavli', 'Mills', 'Nortura', 'Synnøve Finden', 'Lofoten',
+      'Grandiosa', 'Fjordland', 'Lerum', 'Idun', 'Bremykt', 'Jarlsberg', 'Norvegia',
+      // Butikker, faghandel og nettbutikker
+      'Kicks', 'Elkjøp', 'Power', 'Komplett', 'Zalando', 'Boozt', 'Jula', 'Biltema',
+      'Clas Ohlson', 'XXL', 'Sport 1', 'Fjellsport', 'Farmasiet', 'Apotek 1',
+      'Vitusapotek', 'Boots Apotek', 'Outland', 'Norli', 'Ark', 'Lyko', 'Normal',
+      'Europris', 'Kid Interiør', 'Kid', 'Princess', 'Ikea', 'Bohus', 'Skeidar',
+      'Jysk', 'Coop', 'Rema 1000', 'Meny', 'Kiwi', 'Spar', 'Joker', 'Bunnpris',
+      // Telekom, Bank, Forsikring & Offentlig
+      'Vipps', 'DNB', 'SpareBank 1', 'Nordea', 'Storebrand', 'Gjensidige', 'Posten',
+      'PostNord', 'Telenor', 'Telia', 'Ice', 'Finn.no', 'Schibsted', 'Skatteetaten',
+      'Politiet', 'Helsenorge', 'NAV', 'NRK', 'VG', 'Dagbladet', 'TV 2',
+      'Norwegian', 'SAS', 'Widerøe', 'Vy'
     ];
 
     for (const brand of knownBrands) {
@@ -502,57 +543,16 @@ Returner KUN gyldig JSON med følgende struktur:
       }
     }
 
-    // 2. Analyser overskrifts- og topplinjer (Header detection)
-    // Hopper automatisk over nettleserfane-støy som Google, Chrome, Ny fane osv.
-    const lines = cleanText.split('\n').map(l => l.trim()).filter(Boolean);
-    for (let i = 0; i < Math.min(8, lines.length); i++) {
-      const line = lines[i];
-      const lower = line.toLowerCase();
-      // Hopp over linjer som inneholder typiske nettleserfane-ord
-      if (
-        lower.includes('google') ||
-        lower.includes('chrome') ||
-        lower.includes('ny fane') ||
-        lower.includes('new tab') ||
-        lower.includes('bokmerke')
-      ) {
-        continue;
-      }
-
-      const stripped = line.replace(/^[=☰\-_#\*\s]+/, '').trim();
-      if (!stripped || isUIStopword(stripped)) continue;
-
-      // Hvis linjen har skilletegn som "-" eller "|", ta den første delen (f.eks. "Privex - Cloud" -> "Privex")
-      const firstSegment = stripped.split(/[-|–—•:]/)[0].trim();
-      const words = firstSegment.split(/\s+/);
-
-      if (words.length <= 3 && firstSegment.length >= 2 && firstSegment.length <= 30) {
-        if (!/^\d+([.,]\d+)?\s*(kr|nok|%)?$/i.test(firstSegment) && !firstSegment.toLowerCase().startsWith('fri frakt')) {
-          const candidate = words[0].replace(/[^a-zA-ZæøåÆØÅ0-9]/g, '');
-          if (
-            !isUIStopword(candidate) &&
-            candidate.length >= 2 &&
-            !candidate.toLowerCase().startsWith('http') &&
-            !candidate.toLowerCase().startsWith('www')
-          ) {
-            if (!identifiedBrands.some(b => b.toLowerCase() === candidate.toLowerCase())) {
-              identifiedBrands.push(candidate);
-            }
-          }
-        }
-      }
-    }
-
-    // 3. Søk etter ord foran "Club", "Klubb", "Store" (f.eks. "KICKS Club")
-    const clubMatch = cleanText.match(/([A-ZÆØÅ][a-zA-ZæøåÆØÅ0-9]{2,})\s+(Club|Klubb|Retail|Store)/);
+    // 4. Spesifikk merkevaregjenkjenning foran "Club", "Klubb", "Store", "Shop"
+    const clubMatch = cleanText.match(/([A-ZÆØÅ][a-zA-ZæøåÆØÅ0-9]{2,})\s+(Club|Klubb|Retail|Store|Shop|Nettbutikk)/);
     if (clubMatch) {
       const brand = clubMatch[1];
-      if (!isUIStopword(brand) && !identifiedBrands.some(b => b.toLowerCase() === brand.toLowerCase())) {
+      if (!isStopword(brand) && !identifiedBrands.some(b => b.toLowerCase() === brand.toLowerCase())) {
         identifiedBrands.push(brand);
       }
     }
 
-    // 4. Faresignaler i teksten
+    // 5. Faresignaler i teksten
     const visualRedFlags: any[] = [];
 
     // Falske nyheter / kjendis
@@ -608,8 +608,17 @@ Returner KUN gyldig JSON med følgende struktur:
       });
     }
 
+    const isConsumerProduct =
+      lowerText.includes('næringsinnhold') ||
+      lowerText.includes('ingredienser') ||
+      lowerText.includes('best før') ||
+      lowerText.includes('kjølevare') ||
+      lowerText.includes('pasteurisert');
+
     let summaryOfContent = '';
-    if (cleanText.length > 0) {
+    if (isConsumerProduct && identifiedBrands.length > 0) {
+      summaryOfContent = `Gjenkjent som et ordinært norsk forbrukerprodukt fra ${identifiedBrands[0]}.`;
+    } else if (cleanText.length > 0) {
       summaryOfContent = cleanText.length > 120 
         ? `${cleanText.slice(0, 120)}...` 
         : cleanText;
@@ -628,3 +637,4 @@ Returner KUN gyldig JSON med følgende struktur:
     };
   }
 }
+

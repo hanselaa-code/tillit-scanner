@@ -59,16 +59,42 @@ export class BrregService {
 
   public async searchByName(name: string): Promise<BrregCheckResult> {
     try {
-      const response = await axios.get<{ _embedded?: { enheter?: BrregEntity[] } }>(
-        `${BRREG_BASE_URL}?navn=${encodeURIComponent(name)}&size=10`,
-        {
-          timeout: 6000,
-          headers: { Accept: 'application/json' },
-        }
+      const cleanQ = name.trim().toUpperCase();
+      const queries = [name.trim()];
+
+      // Hvis søket ikke allerede har en selskapsform, søk også spesifikt etter vanlige former og "Norge"
+      if (!cleanQ.includes(' AS') && !cleanQ.includes(' SA') && !cleanQ.includes(' ASA')) {
+        queries.push(`${name.trim()} SA`, `${name.trim()} AS`, `${name.trim()} NORGE`);
+      }
+
+      // Kjør oppslag i parallell
+      const requests = queries.map((q) =>
+        axios
+          .get<{ _embedded?: { enheter?: BrregEntity[] } }>(
+            `${BRREG_BASE_URL}?navn=${encodeURIComponent(q)}&size=10`,
+            {
+              timeout: 6000,
+              headers: { Accept: 'application/json' },
+            }
+          )
+          .catch(() => null)
       );
 
-      const enheter = response.data?._embedded?.enheter;
-      if (!enheter || enheter.length === 0) {
+      const responses = await Promise.all(requests);
+      const allEnheter: BrregEntity[] = [];
+      const seenOrgNrs = new Set<string>();
+
+      for (const res of responses) {
+        const enheter = res?.data?._embedded?.enheter || [];
+        for (const e of enheter) {
+          if (e.organisasjonsnummer && !seenOrgNrs.has(e.organisasjonsnummer)) {
+            seenOrgNrs.add(e.organisasjonsnummer);
+            allEnheter.push(e);
+          }
+        }
+      }
+
+      if (allEnheter.length === 0) {
         return {
           searchedQuery: name,
           found: false,
@@ -78,33 +104,58 @@ export class BrregService {
         };
       }
 
-      // Rangér treffene for å finne det mest relevante selskapet (f.eks. KICKS NORGE AS fremfor tilfeldig ENK)
-      const cleanQ = name.trim().toUpperCase();
-      const scored = enheter.map((e) => {
+      // Rangér treffene for å finne det mest relevante selskapet (f.eks. TINE SA eller KICKS NORGE AS fremfor tilfeldig ENK)
+      const scored = allEnheter.map((e) => {
         let score = 0;
         const eName = (e.navn || '').toUpperCase();
+        const form = e.organisasjonsform?.kode || '';
+        const employees = e.antallAnsatte || 0;
+
         if (eName === cleanQ) {
           score += 100;
         } else if (
-          eName.startsWith(cleanQ + ' ') ||
-          eName.startsWith(cleanQ + ' AS') ||
-          eName.startsWith(cleanQ + ' NORGE') ||
-          eName.startsWith(cleanQ + ' RETAIL')
+          eName === `${cleanQ} AS` ||
+          eName === `${cleanQ} SA` ||
+          eName === `${cleanQ} ASA` ||
+          eName === `${cleanQ} BA`
         ) {
-          score += 60;
+          score += 95;
+        } else if (
+          eName === `${cleanQ} NORGE` ||
+          eName === `${cleanQ} NORGE AS` ||
+          eName === `${cleanQ} NORWAY AS`
+        ) {
+          score += 85;
+        } else if (eName.startsWith(cleanQ + ' ')) {
+          score += 50;
         } else if (eName.includes(cleanQ)) {
           score += 20;
         }
 
-        const form = e.organisasjonsform?.kode || '';
-        if (form === 'AS' || form === 'ASA') {
-          score += 35;
+        // Foretaksform-scoring: aksjeselskap og samvirker veier tungt
+        if (form === 'AS' || form === 'ASA' || form === 'SA' || form === 'BA') {
+          score += 40;
+        } else if (form === 'ENK') {
+          // Enkeltpersonforetak er sjelden den etablerte produsenten eller nettbutikken
+          score -= 30;
         }
-        if (e.antallAnsatte && e.antallAnsatte > 0) {
+
+        // Ansatte-scoring: store arbeidsgivere prioriteres fremfor tomme selskaper
+        if (employees > 500) {
+          score += 60;
+        } else if (employees > 50) {
+          score += 40;
+        } else if (employees > 5) {
           score += 20;
+        } else if (employees === 0 && form === 'ENK') {
+          score -= 20;
         }
+
         if (e.konkurs) {
-          score -= 50;
+          score -= 100;
+        }
+        if (e.underAvvikling || e.underTvangsavviklingEllerTvangsopplosning) {
+          score -= 80;
         }
         return { entity: e, score };
       });
@@ -112,11 +163,16 @@ export class BrregService {
       scored.sort((a, b) => b.score - a.score);
       const best = scored[0];
 
-      // Sjekk om det faktisk er en reell navnelikhet, eller bare en tilfeldig fuzzy-match fra Brreg (f.eks. Privex -> Pritex)
+      // Sjekk om det faktisk er en reell navnelikhet, eller bare en tilfeldig fuzzy-match
       const bestName = (best.entity.navn || '').toUpperCase();
-      const hasActualMatch = bestName.includes(cleanQ) || cleanQ.includes(bestName);
+      const hasActualMatch =
+        bestName === cleanQ ||
+        bestName.startsWith(cleanQ + ' ') ||
+        bestName.endsWith(' ' + cleanQ) ||
+        bestName.includes(' ' + cleanQ + ' ') ||
+        (cleanQ.length > 4 && bestName.includes(cleanQ));
 
-      if (!hasActualMatch) {
+      if (!hasActualMatch || best.score < 10) {
         return {
           searchedQuery: name,
           found: false,
