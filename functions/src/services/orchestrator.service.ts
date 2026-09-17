@@ -47,10 +47,42 @@ export class OrchestratorService {
       (visionResult?.detectedUrls && visionResult.detectedUrls[0]) ||
       (this.looksLikeUrl(effectiveQuery) ? effectiveQuery : undefined);
 
-    const brregCandidate =
-      (visionResult?.detectedOrgNumbers && visionResult.detectedOrgNumbers[0]) ||
-      (visionResult?.identifiedBrands && visionResult.identifiedBrands[0]) ||
-      (request.query && !this.looksLikeUrl(request.query) ? request.query.trim() : '');
+    // Hvis vi har et domene, f.eks. "www.kicks.no", hent ut stammen "kicks"
+    let domainBrandStem = '';
+    if (domainCandidate) {
+      const cleanDomain = this.domainService.extractDomain(domainCandidate);
+      if (cleanDomain) {
+        const parts = cleanDomain.replace(/^www\./i, '').split('.');
+        if (parts.length >= 2) {
+          domainBrandStem = parts[0];
+        }
+      }
+    }
+
+    // Finn beste Brreg-kandidat med smart prioritering:
+    // 1. Organisasjonsnummer fra bilde (mest presist)
+    // 2. Hvis bildet inneholder et merkenavn som matcher domenet (f.eks. kicks.no + KICKS)
+    // 3. Merkenavn fra visjonsanalyse
+    // 4. Domene-stammen (f.eks. søk etter kicks.no gir Brreg-søk på "kicks")
+    // 5. Manuell tekstforespørsel
+    let brregCandidate = '';
+    if (visionResult?.detectedOrgNumbers && visionResult.detectedOrgNumbers.length > 0) {
+      brregCandidate = visionResult.detectedOrgNumbers[0];
+    } else if (
+      domainBrandStem &&
+      visionResult?.identifiedBrands?.some((b) => b.toLowerCase() === domainBrandStem.toLowerCase())
+    ) {
+      const matchingBrand = visionResult.identifiedBrands.find(
+        (b) => b.toLowerCase() === domainBrandStem.toLowerCase()
+      )!;
+      brregCandidate = matchingBrand;
+    } else if (visionResult?.identifiedBrands && visionResult.identifiedBrands.length > 0) {
+      brregCandidate = visionResult.identifiedBrands[0];
+    } else if (domainBrandStem) {
+      brregCandidate = domainBrandStem;
+    } else if (request.query) {
+      brregCandidate = request.query.trim();
+    }
 
     // 3. Parallell innhenting av eksterne kilder
     const [brregResult, domainResult, reputationResult] = await Promise.all([

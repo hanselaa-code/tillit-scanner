@@ -60,7 +60,7 @@ export class BrregService {
   public async searchByName(name: string): Promise<BrregCheckResult> {
     try {
       const response = await axios.get<{ _embedded?: { enheter?: BrregEntity[] } }>(
-        `${BRREG_BASE_URL}?navn=${encodeURIComponent(name)}&size=3`,
+        `${BRREG_BASE_URL}?navn=${encodeURIComponent(name)}&size=10`,
         {
           timeout: 6000,
           headers: { Accept: 'application/json' },
@@ -78,8 +78,39 @@ export class BrregService {
         };
       }
 
-      // Velg det første og mest relevante treffet
-      const bestMatch = enheter[0];
+      // Rangér treffene for å finne det mest relevante selskapet (f.eks. KICKS NORGE AS fremfor tilfeldig ENK)
+      const cleanQ = name.trim().toUpperCase();
+      const scored = enheter.map((e) => {
+        let score = 0;
+        const eName = (e.navn || '').toUpperCase();
+        if (eName === cleanQ) {
+          score += 100;
+        } else if (
+          eName.startsWith(cleanQ + ' ') ||
+          eName.startsWith(cleanQ + ' AS') ||
+          eName.startsWith(cleanQ + ' NORGE') ||
+          eName.startsWith(cleanQ + ' RETAIL')
+        ) {
+          score += 60;
+        } else if (eName.includes(cleanQ)) {
+          score += 20;
+        }
+
+        const form = e.organisasjonsform?.kode || '';
+        if (form === 'AS' || form === 'ASA') {
+          score += 35;
+        }
+        if (e.antallAnsatte && e.antallAnsatte > 0) {
+          score += 20;
+        }
+        if (e.konkurs) {
+          score -= 50;
+        }
+        return { entity: e, score };
+      });
+
+      scored.sort((a, b) => b.score - a.score);
+      const bestMatch = scored[0].entity;
       return this.processEntity(bestMatch, name);
     } catch (error: any) {
       console.warn(`Brreg searchByName failed for ${name}:`, error.message);

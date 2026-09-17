@@ -416,18 +416,72 @@ Returner KUN gyldig JSON med følgende struktur:
       num => num.length === 9
     );
 
-    // 3. Merkevarer (logos + tekstsøk)
+    // 3. Merkevarer (logos + kjente merkevarer + overskrift/header)
     const identifiedBrands: string[] = [...detectedLogos];
+
+    // Norske og vanlige UI-ord, navigasjon og preposisjoner som ALDRI skal tolkes som firmanavn
+    const UI_STOPWORDS = new Set([
+      'meny', 'menu', 'hjem', 'home', 'søk', 'search', 'finn butikk', 'finn',
+      'logg inn', 'login', 'logg ut', 'logout', 'favoritter', 'favorites',
+      'handlekurv', 'kurv', 'cart', 'kasse', 'checkout', 'kjøp', 'bestill',
+      'kundeservice', 'kontakt', 'kontakt oss', 'om oss', 'vilkår', 'betingelser',
+      'personvern', 'cookies', 'frakt', 'retur', 'levering', 'produkter',
+      'artikler', 'kategorier', 'tilbud', 'salg', 'kampanje', 'pris', 'kr', 'nok',
+      'rabatt', 'gavekort', 'åpningstider', 'om produktet', 'anmeld', 'overvåk',
+      'utsolgt', 'på lager', 'klikk her', 'last ned', 'app', 'online', 'mer', 'se her',
+      'i', 'på', 'til', 'for', 'med', 'av', 'fra', 'om', 'over', 'under', 'ved',
+      'mot', 'etter', 'før', 'uten', 'hos', 'mellom', 'rundt', 'gjennom', 'blant',
+      'gratis', 'ny', 'nye', 'alt', 'alle', 'ingen', 'mange', 'mest', 'vår', 'våre',
+      'din', 'ditt', 'dine', 'min', 'mitt', 'mine', 'og', 'eller', 'men', 'som', 'at'
+    ]);
+
+    const isUIStopword = (word: string): boolean => {
+      const clean = word.toLowerCase().replace(/[^a-zæøå0-9]/g, '').trim();
+      return UI_STOPWORDS.has(clean);
+    };
+
+    // 1. Prioriter etablerte kjente handelsaktører i teksten først
     const knownBrands = [
-      'Vipps', 'DNB', 'Posten', 'PostNord', 'Elkjøp', 'Power', 'Komplett',
+      'Kicks', 'Vipps', 'DNB', 'Posten', 'PostNord', 'Elkjøp', 'Komplett',
       'Skatteetaten', 'Politiet', 'Helsenorge', 'NAV', 'Finn.no', 'Telenor',
       'Telia', 'SpareBank 1', 'Nordea', 'Storebrand', 'Gjensidige', 'NRK',
-      'VG', 'Dagbladet', 'TV 2', 'Norwegian', 'SAS', 'Coop', 'Rema 1000', 'Meny'
+      'VG', 'Dagbladet', 'TV 2', 'Norwegian', 'SAS', 'Coop', 'Rema 1000',
+      'Zalando', 'Boozt', 'Jula', 'Biltema', 'Clas Ohlson', 'XXL', 'Sport 1',
+      'Fjellsport', 'Farmasiet', 'Apotek 1', 'Outland', 'Norli', 'Ark', 'Lyko'
     ];
 
     for (const brand of knownBrands) {
       const regex = new RegExp(`\\b${brand}\\b`, 'i');
       if (regex.test(cleanText) && !identifiedBrands.some(b => b.toLowerCase() === brand.toLowerCase())) {
+        identifiedBrands.push(brand);
+      }
+    }
+
+    // 2. Analyser overskrifts- og topplinjer (Header detection)
+    const lines = cleanText.split('\n').map(l => l.trim()).filter(Boolean);
+    for (let i = 0; i < Math.min(5, lines.length); i++) {
+      const line = lines[i];
+      const stripped = line.replace(/^[=☰\-_#\*\s]+/, '').trim();
+      if (!stripped || isUIStopword(stripped)) continue;
+
+      const words = stripped.split(/\s+/);
+      if (words.length <= 2 && stripped.length >= 2 && stripped.length <= 25) {
+        if (!/^\d+([.,]\d+)?\s*(kr|nok|%)?$/i.test(stripped) && !stripped.toLowerCase().startsWith('fri frakt')) {
+          const candidate = words[0].replace(/[^a-zA-ZæøåÆØÅ0-9]/g, '');
+          if (!isUIStopword(candidate) && candidate.length >= 2) {
+            if (!identifiedBrands.some(b => b.toLowerCase() === candidate.toLowerCase())) {
+              identifiedBrands.push(candidate);
+            }
+          }
+        }
+      }
+    }
+
+    // 3. Søk etter ord foran "Club", "Klubb", "Store" (f.eks. "KICKS Club")
+    const clubMatch = cleanText.match(/([A-ZÆØÅ][a-zA-ZæøåÆØÅ0-9]{2,})\s+(Club|Klubb|Retail|Store)/);
+    if (clubMatch) {
+      const brand = clubMatch[1];
+      if (!isUIStopword(brand) && !identifiedBrands.some(b => b.toLowerCase() === brand.toLowerCase())) {
         identifiedBrands.push(brand);
       }
     }
