@@ -67,6 +67,30 @@ Råd: ${report.actionableAdvice.join(' ')}
                       ),
                       textAlign: TextAlign.center,
                     ),
+                    if (report.identifiedSubject.legalName != null &&
+                        report.identifiedSubject.legalName!.toLowerCase() !=
+                            report.identifiedSubject.name!.toLowerCase()) ...[
+                      const SizedBox(height: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: AppTheme.primaryBlue.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppTheme.primaryBlue.withValues(alpha: 0.3)),
+                        ),
+                        child: Text(
+                          report.identifiedSubject.relationship != null
+                              ? '${report.identifiedSubject.relationship}: ${report.identifiedSubject.legalName!}'
+                              : 'Juridisk foretak: ${report.identifiedSubject.legalName!}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppTheme.primaryBlue,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 4),
                   ],
                   if (report.identifiedSubject.orgNumber != null) ...[

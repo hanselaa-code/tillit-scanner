@@ -46,6 +46,13 @@ export interface BrregEntity {
   antallAnsatte?: number;
 }
 
+export interface BrandToEntityLink {
+  brandName: string;
+  officialName: string;
+  relationship: string;
+  primaryOrgNr: string;
+}
+
 export interface BrregCheckResult {
   searchedQuery?: string;
   found: boolean;
@@ -54,6 +61,7 @@ export interface BrregCheckResult {
   isDissolvedOrBankrupt: boolean;
   isRegisteredInMva: boolean;
   ageYears?: number;
+  brandLink?: BrandToEntityLink;
 }
 
 export interface DomainCheckResult {
@@ -125,6 +133,9 @@ export interface FinalAnalysisReport {
   actionableAdvice: string[];
   identifiedSubject: {
     name?: string;
+    legalName?: string;
+    tradeName?: string;
+    relationship?: string;
     orgNumber?: string;
     websiteUrl?: string;
   };

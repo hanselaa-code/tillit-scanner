@@ -2,6 +2,8 @@
 functions/node_modules/
 functions/lib/
 functions/.env
+functions/.env.local
+functions/.env.*
 functions/manifest_temp/
 firebase-debug.log
 firebase-debug.*.log

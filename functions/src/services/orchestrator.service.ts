@@ -110,7 +110,7 @@ export class OrchestratorService {
 
     // 3. Parallell innhenting av eksterne kilder (Brreg, Domene, Omdømme, Google Reviews & Trustpilot)
     const [brregResult, domainResult, reputationResult, reviewsResult] = await Promise.all([
-      brregCandidate ? this.brregService.lookup(brregCandidate) : Promise.resolve(undefined),
+      brregCandidate ? this.brregService.lookup(brregCandidate, domainCandidate) : Promise.resolve(undefined),
       domainCandidate ? this.domainService.analyzeDomain(domainCandidate) : Promise.resolve(undefined),
       this.reputationService.checkReputation(effectiveQuery, visionResult?.extractedText),
       this.reviewsService.checkReviews(effectiveQuery, domainCandidate, brandForReviews),

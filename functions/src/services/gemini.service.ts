@@ -412,7 +412,37 @@ Returner KUN gyldig JSON med følgende struktur:
       actionableAdvice.push('Foretaket fremstår etablert, men benytt alltid ordinære forbrukerrettigheter og sikre betalingskanaler.');
     }
 
-    const subjectName = brreg?.entity?.navn || vision?.identifiedBrands[0] || query || 'Ukjent aktør';
+    const brandLink = brreg?.brandLink;
+    let subjectName = '';
+    let legalName: string | undefined = undefined;
+    let tradeName: string | undefined = undefined;
+    let relationship: string | undefined = undefined;
+
+    if (brandLink) {
+      subjectName = brandLink.brandName;
+      tradeName = brandLink.brandName;
+      legalName = brreg?.entity?.navn || brandLink.officialName;
+      relationship = brandLink.relationship;
+
+      if (brreg?.entity) {
+        positiveFactors.unshift({
+          title: 'Verifisert kjedetilknytning i Brønnøysund',
+          description: `«${brandLink.brandName}» er verifisert tilknyttet det offisielle foretaket ${brreg.entity.navn} (org.nr ${brreg.entity.organisasjonsnummer}) som ${brandLink.relationship.toLowerCase()}${brreg.entity.antallAnsatte ? `, med ${brreg.entity.antallAnsatte} registrerte ansatte i Norge` : ''}.`,
+          severity: 'info',
+        });
+        executiveSummary = `Kjeden «${brandLink.brandName}» er verifisert mot Brønnøysundregistrene gjennom sitt ${brandLink.relationship.toLowerCase()}, ${brreg.entity.navn}. Foretaket er aktivt med gyldig MVA-registrering og etablert drift.`;
+        score = Math.max(score, 95);
+        trafficLight = 'GREEN';
+        riskLevel = 'LAV';
+        headline = 'Lav risiko: Verifisert kjede og foretak';
+      }
+    } else if (brreg?.entity?.navn) {
+      subjectName = brreg.entity.navn;
+      legalName = brreg.entity.navn;
+      tradeName = vision?.identifiedBrands?.[0] || query;
+    } else {
+      subjectName = vision?.identifiedBrands?.[0] || query || 'Ukjent aktør';
+    }
 
     return {
       id,
@@ -427,6 +457,9 @@ Returner KUN gyldig JSON med følgende struktur:
       actionableAdvice,
       identifiedSubject: {
         name: subjectName,
+        legalName,
+        tradeName,
+        relationship,
         orgNumber: brreg?.entity?.organisasjonsnummer,
         websiteUrl: domain?.domain,
       },

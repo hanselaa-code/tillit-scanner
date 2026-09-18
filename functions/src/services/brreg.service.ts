@@ -1,13 +1,15 @@
 import axios from 'axios';
-import { BrregCheckResult, BrregEntity } from '../types/analysis.types';
+import { BrregCheckResult, BrregEntity, BrandToEntityLink } from '../types/analysis.types';
+import { BrandMappingService } from './brand-mapping.service';
 
 const BRREG_BASE_URL = 'https://data.brreg.no/enhetsregisteret/api/enheter';
 
 export class BrregService {
   /**
-   * Sjekker enhet mot Brønnøysundregistrene basert på enten 9-sifret orgnr eller firmanavn.
+   * Sjekker enhet mot Brønnøysundregistrene basert på 9-sifret orgnr,
+   * kjente butikkjeder/varemerker eller firmanavn.
    */
-  public async lookup(query: string): Promise<BrregCheckResult> {
+  public async lookup(query: string, domainCandidate?: string): Promise<BrregCheckResult> {
     const cleaned = query.trim();
     if (!cleaned) {
       return {
@@ -18,24 +20,45 @@ export class BrregService {
       };
     }
 
-    // Sjekk om søket er et 9-sifret organisasjonsnummer
+    // 1. Sjekk om søket er et 9-sifret organisasjonsnummer
     const orgNrMatch = cleaned.replace(/\s+/g, '').match(/^\d{9}$/);
-
     if (orgNrMatch) {
       return this.lookupByOrgNr(orgNrMatch[0]);
     }
 
+    // 2. Kjedetilknytning: Sjekk om søket eller domenet matcher en kjent kjede/merkevare
+    // (f.eks. Normal -> NORMAL NORGE AS, 7-Eleven -> REITAN CONVENIENCE NORWAY AS, Montér -> OPTIMERA AS)
+    const brandMapping =
+      BrandMappingService.findMapping(cleaned) ||
+      (domainCandidate ? BrandMappingService.findByDomain(domainCandidate) : undefined);
+
+    if (brandMapping) {
+      const link: BrandToEntityLink = {
+        brandName: brandMapping.brandName,
+        officialName: brandMapping.officialName,
+        relationship: brandMapping.relationship,
+        primaryOrgNr: brandMapping.primaryOrgNr,
+      };
+
+      const result = await this.lookupByOrgNr(brandMapping.primaryOrgNr, link);
+      if (result.found) {
+        result.searchedQuery = cleaned;
+        return result;
+      }
+    }
+
+    // 3. Søk på navn med parallell selskapsform-utvidelse
     return this.searchByName(cleaned);
   }
 
-  public async lookupByOrgNr(orgNr: string): Promise<BrregCheckResult> {
+  public async lookupByOrgNr(orgNr: string, brandLink?: BrandToEntityLink): Promise<BrregCheckResult> {
     try {
       const response = await axios.get<BrregEntity>(`${BRREG_BASE_URL}/${orgNr}`, {
         timeout: 6000,
         headers: { Accept: 'application/json' },
       });
 
-      return this.processEntity(response.data, orgNr);
+      return this.processEntity(response.data, orgNr, brandLink);
     } catch (error: any) {
       if (error.response && error.response.status === 404) {
         return {
@@ -44,6 +67,7 @@ export class BrregService {
           warningFlags: [`Organisasjonsnummer ${orgNr} finnes ikke i Enhetsregisteret`],
           isDissolvedOrBankrupt: false,
           isRegisteredInMva: false,
+          brandLink,
         };
       }
       console.warn(`Brreg lookup failed for ${orgNr}:`, error.message);
@@ -53,6 +77,7 @@ export class BrregService {
         warningFlags: ['Kunne ikke kontakte Brønnøysundregistrene i sanntid'],
         isDissolvedOrBankrupt: false,
         isRegisteredInMva: false,
+        brandLink,
       };
     }
   }
@@ -62,9 +87,17 @@ export class BrregService {
       const cleanQ = name.trim().toUpperCase();
       const queries = [name.trim()];
 
-      // Hvis søket ikke allerede har en selskapsform, søk også spesifikt etter vanlige former og "Norge"
+      // Hvis søket ikke allerede har en selskapsform, søk også spesifikt etter vanlige former, driftsselskaper og "Norge"
       if (!cleanQ.includes(' AS') && !cleanQ.includes(' SA') && !cleanQ.includes(' ASA')) {
-        queries.push(`${name.trim()} SA`, `${name.trim()} AS`, `${name.trim()} NORGE`);
+        queries.push(
+          `${name.trim()} NORGE AS`,
+          `${name.trim()} AS`,
+          `${name.trim()} SA`,
+          `${name.trim()} NORGE`,
+          `${name.trim()} DRIFT AS`,
+          `${name.trim()} BUTIKKDRIFT AS`,
+          `${name.trim()} RETAIL AS`
+        );
       }
 
       // Kjør oppslag i parallell
@@ -195,7 +228,11 @@ export class BrregService {
     }
   }
 
-  private processEntity(entity: BrregEntity, query: string): BrregCheckResult {
+  private processEntity(
+    entity: BrregEntity,
+    query: string,
+    brandLink?: BrandToEntityLink
+  ): BrregCheckResult {
     const warningFlags: string[] = [];
 
     const isBankrupt = Boolean(entity.konkurs);
@@ -234,6 +271,7 @@ export class BrregService {
       isDissolvedOrBankrupt: isBankrupt || isLiquidating,
       isRegisteredInMva: Boolean(entity.registrertIMvaregisteret),
       ageYears,
+      brandLink,
     };
   }
 }

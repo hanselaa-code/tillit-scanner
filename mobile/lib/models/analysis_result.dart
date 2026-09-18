@@ -43,15 +43,28 @@ class AssessmentFactor {
 
 class IdentifiedSubject {
   final String? name;
+  final String? legalName;
+  final String? tradeName;
+  final String? relationship;
   final String? orgNumber;
   final String? websiteUrl;
 
-  IdentifiedSubject({this.name, this.orgNumber, this.websiteUrl});
+  IdentifiedSubject({
+    this.name,
+    this.legalName,
+    this.tradeName,
+    this.relationship,
+    this.orgNumber,
+    this.websiteUrl,
+  });
 
   factory IdentifiedSubject.fromJson(Map<String, dynamic>? json) {
     if (json == null) return IdentifiedSubject();
     return IdentifiedSubject(
       name: json['name'],
+      legalName: json['legalName'],
+      tradeName: json['tradeName'],
+      relationship: json['relationship'],
       orgNumber: json['orgNumber'],
       websiteUrl: json['websiteUrl'],
     );

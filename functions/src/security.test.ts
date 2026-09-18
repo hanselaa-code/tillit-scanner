@@ -126,3 +126,42 @@ test('Security: App Check Verification', async (t) => {
     assert.equal(res.verified, false);
   });
 });
+
+test('Brand Mapping: Linking commercial names to Brønnøysund legal entities', async (t) => {
+  const { BrandMappingService } = await import('./services/brand-mapping.service');
+
+  await t.test('Kobler Normal til NORMAL NORGE AS (917019738)', () => {
+    const mapping = BrandMappingService.findMapping('Normal');
+    assert.ok(mapping);
+    assert.equal(mapping?.officialName, 'NORMAL NORGE AS');
+    assert.equal(mapping?.primaryOrgNr, '917019738');
+  });
+
+  await t.test('Kobler 7-Eleven til REITAN CONVENIENCE NORWAY AS (983415660)', () => {
+    const mapping = BrandMappingService.findMapping('7-Eleven');
+    assert.ok(mapping);
+    assert.equal(mapping?.officialName, 'REITAN CONVENIENCE NORWAY AS');
+    assert.equal(mapping?.primaryOrgNr, '983415660');
+  });
+
+  await t.test('Kobler Montér til OPTIMERA AS (967013056)', () => {
+    const mapping = BrandMappingService.findMapping('Montér');
+    assert.ok(mapping);
+    assert.equal(mapping?.officialName, 'OPTIMERA AS');
+    assert.equal(mapping?.primaryOrgNr, '967013056');
+  });
+
+  await t.test('Kobler Vitusapotek til NORSK MEDISINALDEPOT AS (965336796)', () => {
+    const mapping = BrandMappingService.findMapping('Vitusapotek');
+    assert.ok(mapping);
+    assert.equal(mapping?.officialName, 'NORSK MEDISINALDEPOT AS');
+    assert.equal(mapping?.primaryOrgNr, '965336796');
+  });
+
+  await t.test('Kobler domenet normal.no til Normal', () => {
+    const mapping = BrandMappingService.findByDomain('www.normal.no');
+    assert.ok(mapping);
+    assert.equal(mapping?.brandName, 'Normal');
+    assert.equal(mapping?.primaryOrgNr, '917019738');
+  });
+});
