@@ -127,7 +127,16 @@ export class BrregService {
         }
       }
 
-      if (allEnheter.length === 0) {
+      // Filtrer ut enheter som ikke reelt inneholder søkeordet (forhindrer at utvidede søk som f.eks. "sinful RETAIL AS" matcher tilfeldige "EG RETAIL AS")
+      const relevantEnheter = allEnheter.filter((e) => {
+        const eName = (e.navn || '').toUpperCase();
+        if (eName === cleanQ) return true;
+        if (eName.startsWith(cleanQ + ' ') || eName.endsWith(' ' + cleanQ) || eName.includes(' ' + cleanQ + ' ')) return true;
+        if (cleanQ.length >= 4 && eName.includes(cleanQ)) return true;
+        return false;
+      });
+
+      if (relevantEnheter.length === 0) {
         return {
           searchedQuery: name,
           found: false,
@@ -137,37 +146,41 @@ export class BrregService {
         };
       }
 
-      // Rangér treffene for å finne det mest relevante selskapet (f.eks. TINE SA eller KICKS NORGE AS fremfor tilfeldig ENK)
-      const scored = allEnheter.map((e) => {
+      // Rangér treffene for å finne det mest relevante selskapet (f.eks. TINE SA, SINFUL APS eller KICKS NORGE AS fremfor tilfeldig ENK)
+      const scored = relevantEnheter.map((e) => {
         let score = 0;
         const eName = (e.navn || '').toUpperCase();
         const form = e.organisasjonsform?.kode || '';
         const employees = e.antallAnsatte || 0;
 
         if (eName === cleanQ) {
-          score += 100;
+          score += 120;
         } else if (
           eName === `${cleanQ} AS` ||
           eName === `${cleanQ} SA` ||
           eName === `${cleanQ} ASA` ||
           eName === `${cleanQ} BA`
         ) {
-          score += 95;
+          score += 115;
         } else if (
-          eName === `${cleanQ} NORGE` ||
           eName === `${cleanQ} NORGE AS` ||
-          eName === `${cleanQ} NORWAY AS`
+          eName === `${cleanQ} NORWAY AS` ||
+          eName === `${cleanQ} NORGE`
         ) {
-          score += 85;
+          score += 110;
         } else if (eName.startsWith(cleanQ + ' ')) {
-          score += 50;
+          // Dekker f.eks. "SINFUL APS", "POWER NORGE AS", etc.
+          score += 105;
         } else if (eName.includes(cleanQ)) {
-          score += 20;
+          score += 50;
         }
 
-        // Foretaksform-scoring: aksjeselskap og samvirker veier tungt
+        // Foretaksform-scoring: aksjeselskap, samvirker og NUF (norskregistrert utenlandsk foretak) veier tungt
         if (form === 'AS' || form === 'ASA' || form === 'SA' || form === 'BA') {
           score += 40;
+        } else if (form === 'NUF') {
+          // Mange store nettbutikker og internasjonale aktører i Norge opererer som NUF
+          score += 35;
         } else if (form === 'ENK') {
           // Enkeltpersonforetak er sjelden den etablerte produsenten eller nettbutikken
           score -= 30;
@@ -196,16 +209,7 @@ export class BrregService {
       scored.sort((a, b) => b.score - a.score);
       const best = scored[0];
 
-      // Sjekk om det faktisk er en reell navnelikhet, eller bare en tilfeldig fuzzy-match
-      const bestName = (best.entity.navn || '').toUpperCase();
-      const hasActualMatch =
-        bestName === cleanQ ||
-        bestName.startsWith(cleanQ + ' ') ||
-        bestName.endsWith(' ' + cleanQ) ||
-        bestName.includes(' ' + cleanQ + ' ') ||
-        (cleanQ.length > 4 && bestName.includes(cleanQ));
-
-      if (!hasActualMatch || best.score < 10) {
+      if (!best || best.score < 10) {
         return {
           searchedQuery: name,
           found: false,

@@ -48,6 +48,7 @@ class IdentifiedSubject {
   final String? relationship;
   final String? orgNumber;
   final String? websiteUrl;
+  final String? detectedProduct;
 
   IdentifiedSubject({
     this.name,
@@ -56,6 +57,7 @@ class IdentifiedSubject {
     this.relationship,
     this.orgNumber,
     this.websiteUrl,
+    this.detectedProduct,
   });
 
   factory IdentifiedSubject.fromJson(Map<String, dynamic>? json) {
@@ -67,6 +69,7 @@ class IdentifiedSubject {
       relationship: json['relationship'],
       orgNumber: json['orgNumber'],
       websiteUrl: json['websiteUrl'],
+      detectedProduct: json['detectedProduct'],
     );
   }
 }

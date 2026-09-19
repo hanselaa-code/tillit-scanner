@@ -138,11 +138,12 @@ Svar KUN med et gyldig JSON-objekt med nøyaktig denne strukturen:
     domain?: DomainCheckResult;
     reputation?: ReputationCheckResult;
     reviews?: ReviewsCheckResult;
+    detectedProduct?: string;
   }): Promise<FinalAnalysisReport> {
-    const { id, query, vision, brreg, domain, reputation, reviews } = params;
+    const { id, query, vision, brreg, domain, reputation, reviews, detectedProduct } = params;
 
     if (!this.genAI) {
-      return this.calculateHeuristicScore(id, query, vision, brreg, domain, reputation, reviews);
+      return this.calculateHeuristicScore(id, query, vision, brreg, domain, reputation, reviews, detectedProduct);
     }
 
     try {
@@ -166,16 +167,21 @@ Inndata:
 - Domene- og nettadressevalidering: ${JSON.stringify(domain || null)}
 - Omdømme- og varslingssjekk: ${JSON.stringify(reputation || null)}
 - Kundeanmeldelser og omdømme (Google Reviews og Trustpilot): ${JSON.stringify(reviews || null)}
+- Eventuelt separat produkt oppdaget på siden: ${JSON.stringify(detectedProduct || null)}
+
+Kritisk regel for nettbutikker og nettsider:
+- Hvis bildet eller inndataene har en oppdaget nettadresse eller et domene (f.eks. «sinful.no», «power.no», «elkjop.no», «zalando.no»): Subjektet for analysen og seriøsitetsscoren er ALLTID forhandleren/nettbutikken bak domenet (f.eks. «Sinful», «Power», «Elkjøp»), fordi det er denne aktøren forbrukeren handler hos og betaler penger til.
+- Et eventuelt produkt eller varemerke som vises for salg på siden (f.eks. «Hims», «Nike», «Apple iPhone», «Oral-B») er KUN et produkt på siden og skal ALDRI settes som "name" for bedriften/subjektet. Sett i så fall produktet i "detectedProduct".
 
 Generer en seriøsitetsscore fra 0 til 100:
 - 0–39: HØY RISIKO (RØD). Typisk: Falsk merkevare, kjent svindelmønster, konkursrammet foretak, mistenkelig domene, ingen reell bedrift bak, eller ekstremt dårlige anmeldelser/kundeklager.
 - 40–69: MODERAT RISIKO / VÆR OPPMERKSOM (GUL). Typisk: Nystiftet foretak, manglende MVA, ufullstendig kontaktinfo, uklare vilkår, eller under middels/blandede kundeanmeldelser.
-- 70–100: LAV RISIKO / ETABLERT (GRØNN). Typisk: Etablert norsk AS med historikk, aktivt MVA-registrert, offisielt domene, gode kundeanmeldelser.
+- 70–100: LAV RISIKO / ETABLERT (GRØNN). Typisk: Etablert norsk AS eller NUF med historikk, aktivt MVA-registrert, offisielt domene, gode kundeanmeldelser.
 
 Viktig om kundeanmeldelser:
 - Hvis aktøren har lave anmeldelser på Google (< 3.0 stjerner) eller klager på manglende levering/kundeservice: Inkluder en risikofaktor med severity "danger" eller "warning" og reduser scoren.
 - Hvis aktøren har gode verifiserte anmeldelser (>= 4.0 stjerner med et solid antall omtaler): Inkluder en trygghetsfaktor med severity "info".
-- Hvis ingen anmeldelser eller sted finnes for en nettbutikk som utgir seg for å være etablert: Nevn dette i vurderingen.
+- Rene nettbutikker uten fysiske utsalgssteder har sjelden Google Maps-anmeldelser; dette er helt normalt for netthandel og skal ikke trekke ned scoren dersom foretaket er etablert og registrert i Brønnøysund.
 
 Returner KUN gyldig JSON med følgende struktur:
 {
@@ -203,15 +209,48 @@ Returner KUN gyldig JSON med følgende struktur:
     "Konkret råd 2 til forbrukeren"
   ],
   "identifiedSubject": {
-    "name": "Navn på bedrift/aktør",
+    "name": "Navn på butikk/forhandler (f.eks. Sinful)",
+    "legalName": "Juridisk navn (f.eks. SINFUL APS)",
+    "tradeName": "Markedsnavn hvis relevant",
+    "relationship": "Tilknytning hvis relevant",
     "orgNumber": "9-sifret orgnr hvis relevant",
-    "websiteUrl": "Nettadresse hvis relevant"
+    "websiteUrl": "Nettadresse hvis relevant",
+    "detectedProduct": "Navn på enkeltprodukt på siden hvis relevant (f.eks. Hims)"
   }
 }
 `;
 
       const response = await model.generateContent(prompt);
       const data = JSON.parse(response.response.text());
+
+      // Sikre at nettbutikk/domene ikke forveksles med produktnavn i identifiedSubject
+      let finalName = data.identifiedSubject?.name || query || 'Ukjent aktør';
+      let finalLegalName = data.identifiedSubject?.legalName || brreg?.entity?.navn;
+      let finalTradeName = data.identifiedSubject?.tradeName || brreg?.brandLink?.brandName;
+      let finalRelationship = data.identifiedSubject?.relationship || brreg?.brandLink?.relationship;
+      let finalDetectedProduct = detectedProduct || data.identifiedSubject?.detectedProduct;
+
+      if (brreg?.brandLink) {
+        finalName = brreg.brandLink.brandName;
+        finalTradeName = brreg.brandLink.brandName;
+        finalLegalName = brreg.entity?.navn || brreg.brandLink.officialName;
+        finalRelationship = brreg.brandLink.relationship;
+      } else if (brreg?.entity?.navn) {
+        finalLegalName = brreg.entity.navn;
+        if (domain?.domain) {
+          const domainStem = domain.domain.replace(/^www\./i, '').split('.')[0];
+          if (finalName.toLowerCase() !== domainStem.toLowerCase() && !finalName.toLowerCase().includes(domainStem.toLowerCase())) {
+            finalDetectedProduct = finalDetectedProduct || finalName;
+            finalName = domainStem.charAt(0).toUpperCase() + domainStem.slice(1);
+          }
+        }
+      } else if (domain?.domain) {
+        const domainStem = domain.domain.replace(/^www\./i, '').split('.')[0];
+        if (finalName.toLowerCase() !== domainStem.toLowerCase() && !finalName.toLowerCase().includes(domainStem.toLowerCase())) {
+          finalDetectedProduct = finalDetectedProduct || finalName;
+          finalName = domainStem.charAt(0).toUpperCase() + domainStem.slice(1);
+        }
+      }
 
       return {
         id,
@@ -224,7 +263,15 @@ Returner KUN gyldig JSON med følgende struktur:
         riskFactors: data.riskFactors || [],
         positiveFactors: data.positiveFactors || [],
         actionableAdvice: data.actionableAdvice || ['Vær aktsom ved oppgitte betalingsopplysninger.'],
-        identifiedSubject: data.identifiedSubject || {},
+        identifiedSubject: {
+          name: finalName,
+          legalName: finalLegalName,
+          tradeName: finalTradeName,
+          relationship: finalRelationship,
+          orgNumber: brreg?.entity?.organisasjonsnummer || data.identifiedSubject?.orgNumber,
+          websiteUrl: domain?.domain || data.identifiedSubject?.websiteUrl,
+          detectedProduct: finalDetectedProduct,
+        },
         brreg,
         domain,
         vision,
@@ -233,7 +280,7 @@ Returner KUN gyldig JSON med følgende struktur:
       };
     } catch (err: any) {
       console.warn('Gemini synthesis failed, falling back to heuristic engine:', err.message);
-      return this.calculateHeuristicScore(id, query, vision, brreg, domain, reputation, reviews);
+      return this.calculateHeuristicScore(id, query, vision, brreg, domain, reputation, reviews, detectedProduct);
     }
   }
 
@@ -247,7 +294,8 @@ Returner KUN gyldig JSON med følgende struktur:
     brreg?: BrregCheckResult,
     domain?: DomainCheckResult,
     reputation?: ReputationCheckResult,
-    reviews?: ReviewsCheckResult
+    reviews?: ReviewsCheckResult,
+    detectedProduct?: string
   ): FinalAnalysisReport {
     let score = 75; // Nøytralt utgangspunkt
     const riskFactors: AssessmentFactor[] = [];
@@ -413,10 +461,14 @@ Returner KUN gyldig JSON med følgende struktur:
     }
 
     const brandLink = brreg?.brandLink;
-    let subjectName = '';
+    let subjectName: string;
     let legalName: string | undefined = undefined;
     let tradeName: string | undefined = undefined;
     let relationship: string | undefined = undefined;
+    let finalDetectedProduct: string | undefined = detectedProduct;
+
+    const domainStem = domain?.domain ? domain.domain.replace(/^www\./i, '').split('.')[0] : '';
+    const formattedDomainName = domainStem ? domainStem.charAt(0).toUpperCase() + domainStem.slice(1) : '';
 
     if (brandLink) {
       subjectName = brandLink.brandName;
@@ -436,12 +488,30 @@ Returner KUN gyldig JSON med følgende struktur:
         riskLevel = 'LAV';
         headline = 'Lav risiko: Verifisert kjede og foretak';
       }
+    } else if (domainStem) {
+      // Domenet definerer butikken/forhandleren
+      subjectName = formattedDomainName;
+      tradeName = formattedDomainName;
+      legalName = brreg?.entity?.navn;
+      if (brreg?.entity?.navn && brreg.found) {
+        relationship = 'Offisielt registrert foretak for domenet';
+      }
     } else if (brreg?.entity?.navn) {
       subjectName = brreg.entity.navn;
       legalName = brreg.entity.navn;
       tradeName = vision?.identifiedBrands?.[0] || query;
     } else {
       subjectName = vision?.identifiedBrands?.[0] || query || 'Ukjent aktør';
+    }
+
+    // Hvis det finnes et annet merkevarenavn i bildet enn butikken, er det et produkt på siden
+    if (!finalDetectedProduct && domainStem && vision?.identifiedBrands) {
+      const otherBrand = vision.identifiedBrands.find(
+        (b) => b.toLowerCase().replace(/[^a-z0-9]/g, '') !== domainStem.toLowerCase()
+      );
+      if (otherBrand) {
+        finalDetectedProduct = otherBrand;
+      }
     }
 
     return {
@@ -462,6 +532,7 @@ Returner KUN gyldig JSON med følgende struktur:
         relationship,
         orgNumber: brreg?.entity?.organisasjonsnummer,
         websiteUrl: domain?.domain,
+        detectedProduct: finalDetectedProduct,
       },
       brreg,
       domain,
@@ -579,7 +650,7 @@ Returner KUN gyldig JSON med følgende struktur:
       'Vitusapotek', 'Boots Apotek', 'Outland', 'Norli', 'Ark', 'Lyko', 'Normal',
       'Europris', 'Kid Interiør', 'Princess', 'Ikea', 'Bohus', 'Skeidar',
       'Jysk', 'Coop', 'Rema 1000', 'Meny', 'Kiwi', 'Eurospar', 'Joker', 'Bunnpris',
-      'Sparkjøp', 'Spar Kjøp', 'Blivakker', 'Bli Vakker', 'Milrab', 'Gymgrossisten',
+      'Sparkjøp', 'Spar Kjøp', 'Sinful', 'Blivakker', 'Bli Vakker', 'Milrab', 'Gymgrossisten',
       // Telekom, Bank, Forsikring & Offentlig
       'Vipps', 'DNB', 'SpareBank 1', 'Nordea', 'Storebrand', 'Gjensidige', 'Posten',
       'PostNord', 'Telenor', 'Telia', 'Ice', 'Finn.no', 'Schibsted', 'Skatteetaten',

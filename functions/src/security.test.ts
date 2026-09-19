@@ -164,4 +164,86 @@ test('Brand Mapping: Linking commercial names to Brønnøysund legal entities', 
     assert.equal(mapping?.brandName, 'Normal');
     assert.equal(mapping?.primaryOrgNr, '917019738');
   });
+
+  await t.test('Kobler Sinful og sinful.no til SINFUL APS (913397045)', () => {
+    const mapping = BrandMappingService.findMapping('Sinful');
+    assert.ok(mapping);
+    assert.equal(mapping?.officialName, 'SINFUL APS');
+    assert.equal(mapping?.primaryOrgNr, '913397045');
+
+    const byDom = BrandMappingService.findByDomain('https://www.sinful.no/product/123');
+    assert.ok(byDom);
+    assert.equal(byDom?.brandName, 'Sinful');
+    assert.equal(byDom?.primaryOrgNr, '913397045');
+  });
+});
+
+test('Brreg & Store vs Product: Resolving webshop entities and separate products', async (t) => {
+  const { BrregService } = await import('./services/brreg.service');
+  const { GeminiService } = await import('./services/gemini.service');
+
+  await t.test('Brreg searchByName finner SINFUL APS (NUF) uten å bli fortrengt av urelaterte selskaper', async () => {
+    const brregService = new BrregService();
+    const result = await brregService.searchByName('sinful');
+    assert.equal(result.found, true);
+    assert.equal(result.entity?.navn, 'SINFUL APS');
+    assert.equal(result.entity?.organisasjonsnummer, '913397045');
+    assert.equal(result.isRegisteredInMva, true);
+  });
+
+  await t.test('GeminiService skiller forhandler/nettbutikk (Sinful) fra produkt på siden (Hims)', async () => {
+    const geminiService = new GeminiService();
+    const report = await geminiService.synthesizeReport({
+      id: 'test-report-1',
+      query: 'sinful.no',
+      domain: {
+        domain: 'sinful.no',
+        isHttps: true,
+        isSuspiciousTld: false,
+        dnsResolved: true,
+        flags: [],
+      },
+      vision: {
+        extractedText: 'Hims Extra Strength sinful.no Kjøp nå',
+        identifiedBrands: ['Hims'],
+        detectedUrls: ['https://www.sinful.no/produkt/hims'],
+        detectedOrgNumbers: [],
+        visualRedFlags: [],
+        summaryOfContent: 'Produktside på sinful.no for Hims',
+        hasSuspiciousVisualDesign: false,
+      },
+      brreg: {
+        found: true,
+        searchedQuery: 'Sinful',
+        entity: {
+          organisasjonsnummer: '913397045',
+          navn: 'SINFUL APS',
+          organisasjonsform: { kode: 'NUF', beskrivelse: 'Norskregistrert utenlandsk foretak' },
+          registrertIMvaregisteret: true,
+          konkurs: false,
+          underAvvikling: false,
+          underTvangsavviklingEllerTvangsopplosning: false,
+        },
+        warningFlags: [],
+        isDissolvedOrBankrupt: false,
+        isRegisteredInMva: true,
+        brandLink: {
+          brandName: 'Sinful',
+          officialName: 'SINFUL APS',
+          relationship: 'Norskregistrert utenlandsk foretak (NUF) for sinful.no',
+          primaryOrgNr: '913397045',
+        },
+      },
+      detectedProduct: 'Hims',
+    });
+
+    // Subjektet MÅ være butikken/kjeden (Sinful), IKKE produktet (Hims)
+    assert.equal(report.identifiedSubject.name, 'Sinful');
+    assert.equal(report.identifiedSubject.legalName, 'SINFUL APS');
+    assert.equal(report.identifiedSubject.orgNumber, '913397045');
+    // Produktet skal være registrert som detectedProduct
+    assert.equal(report.identifiedSubject.detectedProduct, 'Hims');
+    // Scoren skal være grønn (lav risiko)
+    assert.equal(report.trafficLight, 'GREEN');
+  });
 });

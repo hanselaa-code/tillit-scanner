@@ -372,6 +372,38 @@ export const KNOWN_BRAND_MAPPINGS: BrandMapping[] = [
     relationship: 'Markedsplass (Schibsted-konsernet)',
     domains: ['finn.no'],
   },
+  {
+    brandName: 'Sinful',
+    aliases: ['sinful', 'sinful.no', 'sinful norge', 'sinful aps'],
+    primaryOrgNr: '913397045',
+    officialName: 'SINFUL APS',
+    relationship: 'Norskregistrert utenlandsk foretak (NUF) for sinful.no',
+    domains: ['sinful.no'],
+  },
+  {
+    brandName: 'Blivakker',
+    aliases: ['blivakker', 'bli vakker', 'blivakker.no', 'brands nordic'],
+    primaryOrgNr: '991823798',
+    officialName: 'BRANDS NORDIC AS',
+    relationship: 'Driftsselskap for Blivakker.no',
+    domains: ['blivakker.no'],
+  },
+  {
+    brandName: 'Farmasiet',
+    aliases: ['farmasiet', 'farmasiet.no', 'komplett apotek'],
+    primaryOrgNr: '914041791',
+    officialName: 'FARMASIET AS',
+    relationship: 'Nettapotek og driftsselskap',
+    domains: ['farmasiet.no'],
+  },
+  {
+    brandName: 'Milrab',
+    aliases: ['milrab', 'milrab.no'],
+    primaryOrgNr: '990710671',
+    officialName: 'MILRAB AS',
+    relationship: 'Nettbutikk og driftsselskap',
+    domains: ['milrab.no'],
+  },
 ];
 
 export class BrandMappingService {

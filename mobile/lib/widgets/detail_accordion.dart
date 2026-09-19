@@ -122,11 +122,13 @@ class DetailAccordion extends StatelessWidget {
             ),
           ],
         ] else ...[
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 6.0),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6.0),
             child: Text(
-              'Ingen registrerte anmeldelser funnet på Google. Dette kan indikere en ukjent aktør eller et nyopprettet nettsted.',
-              style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+              report.domain != null
+                  ? 'Rene nettbutikker har sjelden Google Maps-anmeldelser. Sjekk Trustpilot-profilen for verifiserte kundeomtaler.'
+                  : 'Ingen registrerte anmeldelser funnet på Google. Dette kan indikere en ukjent aktør eller et nyopprettet nettsted.',
+              style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
             ),
           ),
         ],

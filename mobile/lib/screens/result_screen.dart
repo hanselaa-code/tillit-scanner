@@ -102,8 +102,29 @@ Råd: ${report.actionableAdvice.join(' ')}
                         fontWeight: FontWeight.w500,
                       ),
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 6),
                   ],
+                  if (report.identifiedSubject.detectedProduct != null) ...[
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: AppTheme.surfaceElevated,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppTheme.cardBorder),
+                      ),
+                      child: Text(
+                        'Produkt observert på siden: ${report.identifiedSubject.detectedProduct!}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppTheme.textSecondary,
+                          fontStyle: FontStyle.italic,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 8),
                   ScoreGauge(
                     score: report.score,
                     trafficLight: report.trafficLight,

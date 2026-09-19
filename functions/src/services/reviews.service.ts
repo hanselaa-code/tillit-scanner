@@ -68,7 +68,7 @@ export class ReviewsService {
     if (google?.found && google.rating !== undefined) {
       summary = `Fant Google-oppføring for «${google.placeName || searchPhrase}» med ${google.rating} av 5 stjerner (${google.userRatingCount || 0} anmeldelser).`;
     } else if (cleanDomain) {
-      summary = `Ingen Google Places-oppføring funnet for «${searchPhrase}». Trustpilot-sjekk anbefales.`;
+      summary = `Ingen Google Places-oppføring for «${searchPhrase}» (normalt for rene nettbutikker). Trustpilot-sjekk anbefales.`;
     }
 
     return {

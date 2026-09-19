@@ -138,6 +138,7 @@ export interface FinalAnalysisReport {
     relationship?: string;
     orgNumber?: string;
     websiteUrl?: string;
+    detectedProduct?: string;
   };
   brreg?: BrregCheckResult;
   domain?: DomainCheckResult;

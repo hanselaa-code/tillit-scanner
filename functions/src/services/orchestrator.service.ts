@@ -65,12 +65,13 @@ export class OrchestratorService {
     // Finn beste Brreg-kandidat med smart prioritering:
     // 1. Organisasjonsnummer fra bilde (mest presist)
     // 2. Domenet fra bildet (hvis nettadresse er oppdaget): Domenet er nettsidens definitive identitet!
-    //    Hvis getinspired.no er i adressefeltet, er det foretaket bak getinspired.no som skal analyseres,
-    //    IKKE tilfeldige merkevarer eller tilbudstekster på siden (som "Spar stort", "Nike", "VG Deals").
+    //    Hvis getinspired.no eller sinful.no er i adressefeltet, er det butikken/forhandleren bak domenet som analyseres,
+    //    IKKE tilfeldige produkter eller merkevarer på siden (som "Hims", "Nike", "Spar stort").
     // 3. Merkenavn fra visjonsanalyse (for fysiske produkter, emballasje, logoer, annonser uten URL)
     // 4. Manuell tekstforespørsel
     let brregCandidate = '';
     let brandForReviews = '';
+    let detectedProduct: string | undefined;
 
     if (visionResult?.detectedOrgNumbers && visionResult.detectedOrgNumbers.length > 0) {
       brregCandidate = visionResult.detectedOrgNumbers[0];
@@ -93,13 +94,29 @@ export class OrchestratorService {
         const splitCamel = exactToken.replace(/([a-zæøå0-9])([A-ZÆØÅ])/g, '$1 $2').trim();
         brregCandidate = splitCamel;
       } else {
-        // Sjekk om noen av identifiedBrands matcher domenet (f.eks. "Kicks" for "kicks.no")
+        // Sjekk om noen av identifiedBrands matcher domenet (f.eks. "Kicks" for "kicks.no", "Sinful" for "sinful.no")
         const matchingBrand = visionResult?.identifiedBrands?.find(
           (b) => b.toLowerCase().replace(/[^a-z0-9]/g, '') === domainBrandStem.toLowerCase()
         );
-        brregCandidate = matchingBrand || domainBrandStem;
+        brregCandidate = matchingBrand || domainBrandStem.charAt(0).toUpperCase() + domainBrandStem.slice(1);
       }
       brandForReviews = brregCandidate;
+
+      // Hvis det finnes et annet merkevarenavn i bildet enn butikkens eget merkenavn,
+      // er det et produkt som vises for salg på siden (f.eks. Hims på sinful.no)
+      if (visionResult?.identifiedBrands && visionResult.identifiedBrands.length > 0) {
+        const otherBrand = visionResult.identifiedBrands.find(
+          (b) => b.toLowerCase().replace(/[^a-z0-9]/g, '') !== domainBrandStem.toLowerCase()
+        );
+        if (otherBrand) {
+          detectedProduct = otherBrand;
+        }
+      }
+
+      // Sørg for at effectiveQuery reflekterer forhandleren dersom brukeren ikke tastet inn en query manuelt
+      if (!request.query) {
+        effectiveQuery = brregCandidate;
+      }
     } else if (visionResult?.identifiedBrands && visionResult.identifiedBrands.length > 0) {
       brregCandidate = visionResult.identifiedBrands[0];
       brandForReviews = brregCandidate;
@@ -125,6 +142,7 @@ export class OrchestratorService {
       domain: domainResult,
       reputation: reputationResult,
       reviews: reviewsResult,
+      detectedProduct,
     });
 
     return finalReport;
