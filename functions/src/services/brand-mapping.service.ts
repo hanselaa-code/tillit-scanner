@@ -404,6 +404,14 @@ export const KNOWN_BRAND_MAPPINGS: BrandMapping[] = [
     relationship: 'Nettbutikk og driftsselskap',
     domains: ['milrab.no'],
   },
+  {
+    brandName: 'Vellafit',
+    aliases: ['vellafit', 'vellafit norge', 'vellafit ap', 'vellafit aps', 'vellafit.no'],
+    primaryOrgNr: '',
+    officialName: 'VELLAFIT APS',
+    relationship: 'Dansk foretak (ApS) som markedsfører i Norge uten registrert norsk AS eller NUF i Enhetsregisteret',
+    domains: ['vellafit.no', 'vellafit.dk', 'vellafit.com'],
+  },
 ];
 
 export class BrandMappingService {

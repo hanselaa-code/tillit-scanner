@@ -6,6 +6,8 @@ import '../widgets/score_gauge.dart';
 import '../widgets/risk_factor_tile.dart';
 import '../widgets/detail_accordion.dart';
 import '../widgets/medical_fact_check_card.dart';
+import '../widgets/trust_score_card.dart';
+import '../widgets/review_intelligence_card.dart';
 
 class ResultScreen extends StatelessWidget {
   final FinalAnalysisReport report;
@@ -136,35 +138,47 @@ Råd: ${report.actionableAdvice.join(' ')}$medicalSection
                       ),
                     ),
                   ],
-                  const SizedBox(height: 8),
-                  ScoreGauge(
-                    score: report.score,
-                    trafficLight: report.trafficLight,
-                    riskLevel: report.riskLevel,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    report.headline,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                      color: statusColor,
+                  if (report.trustReport != null) ...[
+                    const SizedBox(height: 12),
+                    TrustScoreCard(trustReport: report.trustReport!),
+                  ] else ...[
+                    const SizedBox(height: 8),
+                    ScoreGauge(
+                      score: report.score,
+                      trafficLight: report.trafficLight,
+                      riskLevel: report.riskLevel,
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    report.executiveSummary,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: AppTheme.textSecondary,
-                      height: 1.45,
+                    const SizedBox(height: 16),
+                    Text(
+                      report.headline,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: statusColor,
+                      ),
                     ),
-                  ),
+                    const SizedBox(height: 8),
+                    Text(
+                      report.executiveSummary,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: AppTheme.textSecondary,
+                        height: 1.45,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
+
+            // Review Intelligence & NLP Anomalisjekk
+            if (report.trustReport != null) ...[
+              ReviewIntelligenceCard(
+                reviewReport: report.trustReport!.reviewIntelligence,
+              ),
+            ],
 
             // Medisinsk Faktasjekk & Reklamegransking (Doctor Mike-stil)
             if (report.medicalReview != null && report.medicalReview!.hasMedicalClaims) ...[

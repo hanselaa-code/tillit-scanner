@@ -32,28 +32,43 @@ export class BrregService {
       BrandMappingService.findMapping(cleaned) ||
       (domainCandidate ? BrandMappingService.findByDomain(domainCandidate) : undefined);
 
+    let brandLink: BrandToEntityLink | undefined;
     if (brandMapping) {
-      const link: BrandToEntityLink = {
+      brandLink = {
         brandName: brandMapping.brandName,
         officialName: brandMapping.officialName,
         relationship: brandMapping.relationship,
         primaryOrgNr: brandMapping.primaryOrgNr,
       };
 
-      const result = await this.lookupByOrgNr(brandMapping.primaryOrgNr, link);
-      if (result.found) {
-        result.searchedQuery = cleaned;
-        return result;
+      if (brandMapping.primaryOrgNr && /^\d{9}$/.test(brandMapping.primaryOrgNr.trim())) {
+        const result = await this.lookupByOrgNr(brandMapping.primaryOrgNr, brandLink);
+        if (result.found) {
+          result.searchedQuery = cleaned;
+          return result;
+        }
       }
     }
 
     // 3. Søk på navn med parallell selskapsform-utvidelse
-    return this.searchByName(cleaned);
+    return this.searchByName(cleaned, brandLink);
   }
 
   public async lookupByOrgNr(orgNr: string, brandLink?: BrandToEntityLink): Promise<BrregCheckResult> {
+    const cleanNr = orgNr?.trim() || '';
+    if (!cleanNr || !/^\d{9}$/.test(cleanNr)) {
+      return {
+        searchedQuery: cleanNr,
+        found: false,
+        warningFlags: [`Ugyldig organisasjonsnummer: ${cleanNr}`],
+        isDissolvedOrBankrupt: false,
+        isRegisteredInMva: false,
+        brandLink,
+      };
+    }
+
     try {
-      const response = await axios.get<BrregEntity>(`${BRREG_BASE_URL}/${orgNr}`, {
+      const response = await axios.get<BrregEntity>(`${BRREG_BASE_URL}/${cleanNr}`, {
         timeout: 6000,
         headers: { Accept: 'application/json' },
       });
@@ -82,7 +97,7 @@ export class BrregService {
     }
   }
 
-  public async searchByName(name: string): Promise<BrregCheckResult> {
+  public async searchByName(name: string, brandLink?: BrandToEntityLink): Promise<BrregCheckResult> {
     try {
       const cleanQ = name.trim().toUpperCase();
       const queries = [name.trim()];
@@ -143,6 +158,7 @@ export class BrregService {
           warningFlags: [`Ingen registrerte foretak funnet i Brønnøysundregistrene for «${name}»`],
           isDissolvedOrBankrupt: false,
           isRegisteredInMva: false,
+          brandLink,
         };
       }
 
@@ -216,10 +232,11 @@ export class BrregService {
           warningFlags: [`Ingen registrerte foretak i Brønnøysundregistrene matcher navnet «${name}»`],
           isDissolvedOrBankrupt: false,
           isRegisteredInMva: false,
+          brandLink,
         };
       }
 
-      return this.processEntity(best.entity, name);
+      return this.processEntity(best.entity, name, brandLink);
     } catch (error: any) {
       console.warn(`Brreg searchByName failed for ${name}:`, error.message);
       return {
@@ -228,6 +245,7 @@ export class BrregService {
         warningFlags: ['Søk i Enhetsregisteret utilgjengelig akkurat nå'],
         isDissolvedOrBankrupt: false,
         isRegisteredInMva: false,
+        brandLink,
       };
     }
   }

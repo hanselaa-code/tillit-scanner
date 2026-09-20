@@ -1,28 +1,53 @@
 import { randomUUID } from 'crypto';
-import { AnalyzeRequest, FinalAnalysisReport, VisionAnalysisResult } from '../types/analysis.types';
+import {
+  AnalyzeRequest,
+  FinalAnalysisReport,
+  VisionAnalysisResult,
+  AssessmentFactor,
+  TrafficLightColor,
+  RiskLevel,
+} from '../types/analysis.types';
+import { TrustReport, TimelineEvent } from '../types/trust-report.types';
+import { EvidenceObject } from '../types/evidence.types';
 import { GeminiService } from './gemini.service';
-import { BrregService } from './brreg.service';
-import { DomainService } from './domain.service';
 import { ReputationService } from './reputation.service';
 import { ReviewsService } from './reviews.service';
+import { EntityResolverService } from './entity-resolver.service';
+import { FinancialLookupService } from './financial-lookup.service';
+import { ConsumerPolicyService } from './consumer-policy.service';
+import { ReviewIntelligenceService } from './review-intelligence.service';
+import { ProductIntelligenceService } from './product-intelligence.service';
+import { DrMikeService } from './dr-mike.service';
+import { TrustScoringService } from './trust-scoring.service';
 
 export class OrchestratorService {
   private geminiService: GeminiService;
-  private brregService: BrregService;
-  private domainService: DomainService;
   private reputationService: ReputationService;
   private reviewsService: ReviewsService;
+  private entityResolver: EntityResolverService;
+  private financialLookup: FinancialLookupService;
+  private consumerPolicy: ConsumerPolicyService;
+  private reviewIntelligence: ReviewIntelligenceService;
+  private productIntelligence: ProductIntelligenceService;
+  private drMikeService: DrMikeService;
+  private trustScoring: TrustScoringService;
 
   constructor() {
     this.geminiService = new GeminiService();
-    this.brregService = new BrregService();
-    this.domainService = new DomainService();
     this.reputationService = new ReputationService();
     this.reviewsService = new ReviewsService();
+    this.entityResolver = new EntityResolverService();
+    this.financialLookup = new FinancialLookupService();
+    this.consumerPolicy = new ConsumerPolicyService();
+    this.reviewIntelligence = new ReviewIntelligenceService();
+    this.productIntelligence = new ProductIntelligenceService();
+    this.drMikeService = new DrMikeService();
+    this.trustScoring = new TrustScoringService();
   }
 
   public async analyze(request: AnalyzeRequest): Promise<FinalAnalysisReport> {
     const reportId = randomUUID();
+    const now = new Date().toISOString();
     let visionResult: VisionAnalysisResult | undefined;
     let effectiveQuery = request.query?.trim() || '';
 
@@ -45,110 +70,281 @@ export class OrchestratorService {
       }
     }
 
-    // 2. Utled URL eller Brreg-søkeord
-    const domainCandidate = 
+    // 2. Domenekandidat
+    const domainCandidate =
       (visionResult?.detectedUrls && visionResult.detectedUrls[0]) ||
       (this.looksLikeUrl(effectiveQuery) ? effectiveQuery : undefined);
 
-    // Hvis vi har et domene, f.eks. "www.kicks.no", hent ut stammen "kicks"
-    let domainBrandStem = '';
-    if (domainCandidate) {
-      const cleanDomain = this.domainService.extractDomain(domainCandidate);
-      if (cleanDomain) {
-        const parts = cleanDomain.replace(/^www\./i, '').split('.');
-        if (parts.length >= 2) {
-          domainBrandStem = parts[0];
-        }
-      }
-    }
+    // 3. Entity Resolution: Bygg helhetlig selskapsentitet og samle primære bevis
+    const resolvedEntity = await this.entityResolver.resolve(effectiveQuery, domainCandidate);
 
-    // Finn beste Brreg-kandidat med smart prioritering:
-    // 1. Organisasjonsnummer fra bilde (mest presist)
-    // 2. Domenet fra bildet (hvis nettadresse er oppdaget): Domenet er nettsidens definitive identitet!
-    //    Hvis getinspired.no eller sinful.no er i adressefeltet, er det butikken/forhandleren bak domenet som analyseres,
-    //    IKKE tilfeldige produkter eller merkevarer på siden (som "Hims", "Nike", "Spar stort").
-    // 3. Merkenavn fra visjonsanalyse (for fysiske produkter, emballasje, logoer, annonser uten URL)
-    // 4. Manuell tekstforespørsel
-    let brregCandidate = '';
-    let brandForReviews = '';
-    let detectedProduct: string | undefined;
+    const detectedProduct =
+      visionResult?.identifiedBrands?.find(
+        (b) => b.toLowerCase() !== resolvedEntity.resolvedName.toLowerCase()
+      ) || undefined;
 
-    if (visionResult?.detectedOrgNumbers && visionResult.detectedOrgNumbers.length > 0) {
-      brregCandidate = visionResult.detectedOrgNumbers[0];
-      brandForReviews = brregCandidate;
-    } else if (domainBrandStem) {
-      // Domenet er nettsidens kjerneidentitet. Finn beste navneform basert på domenet:
-      // Sjekk om teksten i bildet har en formatert versjon (CamelCase eller ord) av domenet,
-      // f.eks. "GetInspired" i teksten for domenet "getinspired.no" -> "Get Inspired"
-      const textWithoutUrls = (visionResult?.extractedText || '').replace(
-        /(?:https?:\/\/)?(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(?:\/[^\s]*)?/gi,
-        ' '
-      );
-      const tokens = textWithoutUrls.match(/[a-zA-ZæøåÆØÅ0-9]+/g) || [];
-      const exactToken = tokens.find(
-        (t) => t.toLowerCase() === domainBrandStem.toLowerCase()
-      );
+    const fullContextText = `${effectiveQuery} ${visionResult?.extractedText || ''} ${visionResult?.summaryOfContent || ''}`.trim();
 
-      if (exactToken) {
-        // Splitt CamelCase / PascalCase: "GetInspired" -> "Get Inspired"
-        const splitCamel = exactToken.replace(/([a-zæøå0-9])([A-ZÆØÅ])/g, '$1 $2').trim();
-        brregCandidate = splitCamel;
-      } else {
-        // Sjekk om noen av identifiedBrands matcher domenet (f.eks. "Kicks" for "kicks.no", "Sinful" for "sinful.no")
-        const matchingBrand = visionResult?.identifiedBrands?.find(
-          (b) => b.toLowerCase().replace(/[^a-z0-9]/g, '') === domainBrandStem.toLowerCase()
-        );
-        brregCandidate = matchingBrand || domainBrandStem.charAt(0).toUpperCase() + domainBrandStem.slice(1);
-      }
-      brandForReviews = brregCandidate;
-
-      // Hvis det finnes et annet merkevarenavn i bildet enn butikkens eget merkenavn,
-      // er det et produkt som vises for salg på siden (f.eks. Hims på sinful.no)
-      if (visionResult?.identifiedBrands && visionResult.identifiedBrands.length > 0) {
-        const otherBrand = visionResult.identifiedBrands.find(
-          (b) => b.toLowerCase().replace(/[^a-z0-9]/g, '') !== domainBrandStem.toLowerCase()
-        );
-        if (otherBrand) {
-          detectedProduct = otherBrand;
-        }
-      }
-
-      // Sørg for at effectiveQuery reflekterer forhandleren dersom brukeren ikke tastet inn en query manuelt
-      if (!request.query) {
-        effectiveQuery = brregCandidate;
-      }
-    } else if (visionResult?.identifiedBrands && visionResult.identifiedBrands.length > 0) {
-      brregCandidate = visionResult.identifiedBrands[0];
-      brandForReviews = brregCandidate;
-    } else if (request.query) {
-      brregCandidate = request.query.trim();
-      brandForReviews = brregCandidate;
-    }
-
-    // 3. Parallell innhenting av eksterne kilder (Brreg, Domene, Omdømme, Google Reviews & Trustpilot)
-    const [brregResult, domainResult, reputationResult, reviewsResult] = await Promise.all([
-      brregCandidate ? this.brregService.lookup(brregCandidate, domainCandidate) : Promise.resolve(undefined),
-      domainCandidate ? this.domainService.analyzeDomain(domainCandidate) : Promise.resolve(undefined),
-      this.reputationService.checkReputation(effectiveQuery, visionResult?.extractedText),
-      this.reviewsService.checkReviews(effectiveQuery, domainCandidate, brandForReviews),
+    // 4. Parallell multi-source innhenting
+    const [financialsResult, reviewsResult, reputationResult] = await Promise.all([
+      this.financialLookup.lookupFinancials(
+        resolvedEntity.orgNumber,
+        resolvedEntity.brreg?.entity?.antallAnsatte
+      ),
+      this.reviewsService.checkReviews(
+        effectiveQuery,
+        domainCandidate || resolvedEntity.domain,
+        resolvedEntity.resolvedName
+      ),
+      this.reputationService.checkReputation(
+        resolvedEntity.resolvedName,
+        visionResult?.extractedText
+      ),
     ]);
 
-    // 4. Helhetlig vurdering og scoring
-    const finalReport = await this.geminiService.synthesizeReport({
-      id: reportId,
-      query: effectiveQuery,
-      vision: visionResult,
-      brreg: brregResult,
-      domain: domainResult,
-      reputation: reputationResult,
-      reviews: reviewsResult,
+    // 5. Consumer Policy Audit
+    const consumerResult = this.consumerPolicy.analyzePolicies(
+      fullContextText,
+      resolvedEntity.domain
+    );
+
+    // 6. Review Intelligence & NLP Similarity Engine
+    const reviewIntelResult = this.reviewIntelligence.analyzeReviews(
+      reviewsResult.google,
+      reviewsResult.trustpilot,
+      []
+    );
+
+    // 7. Product & Supply Chain / OEM Profiler
+    const productResult = this.productIntelligence.analyzeProduct(
       detectedProduct,
+      fullContextText
+    );
+
+    // 8. Dr. Mike Medical Evidence Verification Engine
+    const drMikeResult = this.drMikeService.verifyClaims(
+      fullContextText,
+      visionResult?.detectedHealthClaims || []
+    );
+
+    // 9. Samle den komplette beviskjeden (Evidence Chain)
+    const evidenceChain: EvidenceObject[] = [
+      ...resolvedEntity.evidence,
+      ...financialsResult.evidence,
+      ...consumerResult.evidence,
+      ...reviewIntelResult.evidence,
+      ...productResult.evidence,
+      ...drMikeResult.evidence,
+    ];
+
+    if (reputationResult.consumerWarningFound) {
+      evidenceChain.push({
+        id: `ev-external-warning-${reportId}`,
+        category: 'EXTERNAL_RISK',
+        claim: 'Varsellister og offentlige advarsler',
+        finding: reputationResult.notes.join(' '),
+        verdict: 'ADVARSEL',
+        sourceName: reputationResult.warningSources.join(', ') || 'Forbrukertilsynet',
+        sourceType: 'EKSTERN_LISTE',
+        retrievedAt: now,
+        confidence: 'HIGH',
+      });
+    }
+
+    // 10. Transparent Trust Scoring & Confidence Calculation
+    const scoringResult = this.trustScoring.calculateScore({
+      isRegisteredCompany: resolvedEntity.isRegisteredInNorway,
+      isBankruptOrLiquidating: resolvedEntity.brreg?.isDissolvedOrBankrupt || false,
+      financialStatus: financialsResult.financials.status,
+      hasActiveDnsAndHttps: resolvedEntity.domainCheck?.dnsResolved || true,
+      suspiciousDomainFlagsCount: resolvedEntity.domainCheck?.flags.length || 0,
+      consumerProtectionStatus: consumerResult.audit.status,
+      reviewAverage: reviewIntelResult.report.averageRating,
+      reviewCount: reviewIntelResult.report.totalReviewCount,
+      hasReviewSimilarityAnomaly: reviewIntelResult.report.similarityAnomaly.detected,
+      hasProductAnalysis: productResult.report.hasProductAnalysis,
+      isOemCategory: productResult.report.originMatch === 'LIKELY_OEM_FAMILY',
+      medicalClaimsContradicted: drMikeResult.report.claims.some(
+        (c) => c.verdict === 'EVIDENCE_CONTRADICTS_CLAIM'
+      ),
+      medicalClaimsUnverified: drMikeResult.report.claims.some(
+        (c) => c.verdict === 'INSUFFICIENT_EVIDENCE'
+      ),
+      externalScamWarningFound: reputationResult.consumerWarningFound,
+      evidenceChain,
     });
 
-    return finalReport;
+    // 11. Bygg "What we found" og "Watch out"
+    const whatWeFound: string[] = [];
+    const watchOut: string[] = [];
+
+    for (const ev of evidenceChain) {
+      if (ev.verdict === 'VERIFISERT_FAKTA' && whatWeFound.length < 5) {
+        whatWeFound.push(ev.finding);
+      } else if (ev.verdict === 'ADVARSEL' && watchOut.length < 5) {
+        watchOut.push(ev.finding);
+      }
+    }
+
+    if (whatWeFound.length === 0) {
+      whatWeFound.push('Virksomhetsinformasjon innhentet fra tilgjengelige kilder.');
+    }
+    if (watchOut.length === 0) {
+      watchOut.push('Ingen kritiske faresignaler eller alvorlige avvik observert.');
+    }
+
+    // 12. Tidslinje
+    const timeline: TimelineEvent[] = [];
+    if (resolvedEntity.brreg?.entity?.stiftelsesdato) {
+      timeline.push({
+        yearOrDate: resolvedEntity.brreg.entity.stiftelsesdato.split('-')[0],
+        title: 'Virksomhet stiftet',
+        description: `Formelt stiftet og registrert som ${resolvedEntity.brreg.entity.organisasjonsform?.beskrivelse || 'foretak'}.`,
+        verified: true,
+      });
+    }
+    if (resolvedEntity.brreg?.isRegisteredInMva) {
+      timeline.push({
+        yearOrDate: 'MVA',
+        title: 'MVA-registrert',
+        description: 'Registrert i Merverdiavgiftsregisteret for ordinær omsetning.',
+        verified: true,
+      });
+    }
+    timeline.push({
+      yearOrDate: 'I dag',
+      title: 'Trust Scanner analyse',
+      description: `Gjennomført uavhengig verifisering og kildesjekk (${scoringResult.confidence.verifiedCategoriesCount}/8 kategorier).`,
+      verified: true,
+    });
+
+    // 13. Bygg komplett Trust Report
+    const trustReport: TrustReport = {
+      id: reportId,
+      analyzedAt: now,
+      subject: {
+        query: effectiveQuery,
+        resolvedName: resolvedEntity.resolvedName,
+        officialLegalName: resolvedEntity.officialLegalName,
+        orgNumber: resolvedEntity.orgNumber,
+        country: resolvedEntity.country,
+        websiteUrl: resolvedEntity.domain,
+        registeredAddress: resolvedEntity.brreg?.entity?.postadresse?.adresse?.join(', '),
+        establishedYear: resolvedEntity.brreg?.entity?.stiftelsesdato?.split('-')[0],
+      },
+      trustScore: scoringResult.trustScore,
+      riskLevel: scoringResult.riskLevel,
+      confidence: scoringResult.confidence,
+      scoreBreakdown: scoringResult.breakdown,
+      executiveSummary: `${resolvedEntity.resolvedName} oppnår en Trust Score på ${scoringResult.trustScore} av 100 (${this.formatRiskLabel(scoringResult.riskLevel)}). ${scoringResult.confidence.explanation}`,
+      whatWeFound,
+      watchOut,
+      hardRedFlags: scoringResult.hardRedFlags,
+      timeline,
+      financialSubstance: financialsResult.financials,
+      consumerProtection: consumerResult.audit,
+      reviewIntelligence: reviewIntelResult.report,
+      productSupplyChain: productResult.report,
+      marketingClaims: [],
+      drMikeMedical: drMikeResult.report,
+      evidenceChain,
+    };
+
+    // 14. Bakoverkompatible felt for FinalAnalysisReport
+    const legacyRiskFactors: AssessmentFactor[] = watchOut.map((item) => ({
+      title: 'Observasjon',
+      description: item,
+      severity: scoringResult.riskLevel === 'HOY_RISIKO' || scoringResult.riskLevel === 'KRITISK_RISIKO' ? 'danger' : 'warning',
+    }));
+
+    const legacyPositiveFactors: AssessmentFactor[] = whatWeFound.map((item) => ({
+      title: 'Bekreftet fakta',
+      description: item,
+      severity: 'info',
+    }));
+
+    let trafficLight: TrafficLightColor = 'GREEN';
+    let legacyRiskLevel: RiskLevel = 'LAV';
+    if (scoringResult.trustScore < 40) {
+      trafficLight = 'RED';
+      legacyRiskLevel = 'HØY';
+    } else if (scoringResult.trustScore < 70) {
+      trafficLight = 'YELLOW';
+      legacyRiskLevel = 'MODERAT';
+    }
+
+    return {
+      id: reportId,
+      analyzedAt: now,
+      score: scoringResult.trustScore,
+      trafficLight,
+      riskLevel: legacyRiskLevel,
+      headline: `${resolvedEntity.resolvedName} – ${this.formatRiskLabel(scoringResult.riskLevel)} (${scoringResult.trustScore}/100)`,
+      executiveSummary: trustReport.executiveSummary,
+      riskFactors: legacyRiskFactors,
+      positiveFactors: legacyPositiveFactors,
+      actionableAdvice: this.generateActionableAdvice(scoringResult.riskLevel, consumerResult.audit.withdrawalPeriodDays),
+      identifiedSubject: {
+        name: resolvedEntity.resolvedName,
+        legalName: resolvedEntity.officialLegalName,
+        tradeName: resolvedEntity.resolvedName,
+        orgNumber: resolvedEntity.orgNumber,
+        websiteUrl: resolvedEntity.domain,
+        detectedProduct,
+      },
+      brreg: resolvedEntity.brreg,
+      domain: resolvedEntity.domainCheck,
+      vision: visionResult,
+      reputation: reputationResult,
+      reviews: reviewsResult,
+      medicalReview: drMikeResult.report.hasMedicalClaims
+        ? {
+            hasMedicalClaims: true,
+            doctorSummary: drMikeResult.report.doctorSummary,
+            overallVerdict: drMikeResult.report.overallDoctorVerdict,
+            claims: drMikeResult.report.claims.map((c) => ({
+              claim: c.claim,
+              verdict: c.verdict === 'EVIDENCE_CONTRADICTS_CLAIM' ? 'MYTE' : c.verdict === 'STRONG_EVIDENCE' ? 'DOKUMENTERT' : 'UDOKUMENTERT',
+              scientificExplanation: c.whatTheEvidenceSays,
+              evidenceLevel: 'Ingen påvist effekt',
+              sourcesOrConsensus: c.sources,
+            })),
+            disclaimer: drMikeResult.report.disclaimer,
+          }
+        : undefined,
+      trustReport,
+    };
   }
 
   private looksLikeUrl(text: string): boolean {
     return /^https?:\/\//i.test(text) || /\.[a-z]{2,}(\/|$)/i.test(text);
+  }
+
+  private formatRiskLabel(risk: TrustReport['riskLevel']): string {
+    switch (risk) {
+      case 'LAV_RISIKO':
+        return 'Lav risiko';
+      case 'MODERAT_RISIKO':
+        return 'Moderat risiko';
+      case 'HOY_RISIKO':
+        return 'Høy risiko';
+      case 'KRITISK_RISIKO':
+        return 'Kritisk risiko';
+    }
+  }
+
+  private generateActionableAdvice(risk: TrustReport['riskLevel'], returnDays?: number): string[] {
+    const advice: string[] = [];
+    if (risk === 'LAV_RISIKO') {
+      advice.push('Virksomheten fremstår etablert med transparente selskapsdata og godkjenninger.');
+      advice.push(`Benytt ordinære forbrukerrettigheter (${returnDays || 14} dagers returrett gjelder).`);
+    } else if (risk === 'MODERAT_RISIKO') {
+      advice.push('Betal alltid med kredittkort eller Klarna for å beholde reklamasjonsvern.');
+      advice.push('Vær oppmerksom på markedsføringspåstander og sjekk returvilkårene nøye før kjøp.');
+    } else {
+      advice.push('Unngå forskuddsbetaling eller overføring via krypto/bankoverføring.');
+      advice.push('Ikke oppgi personopplysninger eller BankID til uverifiserte aktører.');
+    }
+    return advice;
   }
 }

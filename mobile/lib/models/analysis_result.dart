@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'trust_report.dart';
 
 enum TrafficLightColor { green, yellow, red }
 
@@ -473,6 +474,7 @@ class FinalAnalysisReport {
   final VisionDetails? vision;
   final ReviewsDetails? reviews;
   final MedicalExpertReview? medicalReview;
+  final TrustReport? trustReport;
 
   FinalAnalysisReport({
     required this.id,
@@ -491,6 +493,7 @@ class FinalAnalysisReport {
     this.vision,
     this.reviews,
     this.medicalReview,
+    this.trustReport,
   });
 
   factory FinalAnalysisReport.fromJson(Map<String, dynamic> json) {
@@ -534,6 +537,9 @@ class FinalAnalysisReport {
       reviews: json['reviews'] != null ? ReviewsDetails.fromJson(json['reviews']) : null,
       medicalReview: json['medicalReview'] != null
           ? MedicalExpertReview.fromJson(json['medicalReview'])
+          : null,
+      trustReport: json['trustReport'] != null
+          ? TrustReport.fromJson(json['trustReport'] as Map<String, dynamic>)
           : null,
     );
   }

@@ -178,4 +178,5 @@ export interface FinalAnalysisReport {
   reputation?: ReputationCheckResult;
   reviews?: ReviewsCheckResult;
   medicalReview?: MedicalExpertReview;
+  trustReport?: import('./trust-report.types').TrustReport;
 }
