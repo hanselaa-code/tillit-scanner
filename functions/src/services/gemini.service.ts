@@ -11,6 +11,7 @@ import {
   RiskLevel,
   AssessmentFactor,
   MedicalExpertReview,
+  MedicalClaimFactCheck,
 } from '../types/analysis.types';
 
 export class GeminiService {
@@ -28,7 +29,7 @@ export class GeminiService {
         this.genAI = null;
       }
     }
-    this.modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+    this.modelName = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
   }
 
   /**
@@ -578,20 +579,112 @@ Returner KUN gyldig JSON med følgende struktur:
     }
 
     let medicalReview: MedicalExpertReview | undefined = undefined;
-    if (vision?.detectedHealthClaims && vision.detectedHealthClaims.length > 0) {
+    const combinedText = `${query || ''} ${vision?.extractedText || ''} ${vision?.summaryOfContent || ''}`.trim();
+    const healthPatterns = [
+      {
+        pattern: /(?:forbrenner|reduserer|smelter|fjerner)\s+(?:fett|vekt|magefett)[^\.\n]*/i,
+        claimText: 'Rask/overnatten fettforbrenning eller vekttap',
+        verdict: 'MYTE' as const,
+        explanation: 'Fysiologisk er det umulig å punktforbrenne fett eller oppnå dramatisk vekttap over natten. Reell fettforbrenning krever et vedvarende kaloriunderskudd over tid.',
+        evidence: 'Motbevist' as const,
+      },
+      {
+        pattern: /(?:kurerer|helbreder|fjerner)\s+(?:smerter|leddsmerter|artrose|leddgikt|betennelse|kreft|diabetes)[^\.\n]*/i,
+        claimText: 'Kurerer eller helbreder kroniske sykdommer/smerter',
+        verdict: 'FARLIG' as const,
+        explanation: 'Kroniske tilstander som leddgikt, diabetes og kreft krever autorisert medisinsk behandling. Å påstå at kosttilskudd eller alternative preparater kan kurere slike sykdommer er ulovlig og potensielt farlig.',
+        evidence: 'Motbevist' as const,
+      },
+      {
+        pattern: /(?:renser kroppen for giftstoffer|detox)[^\.\n]*/i,
+        claimText: 'Detox / renser kroppen for avfallsstoffer',
+        verdict: 'MYTE' as const,
+        explanation: 'Kroppen renser seg selv kontinuerlig via lever, nyrer og lunger. Ingen piller, teer eller plastre har vitenskapelig dokumentert avgiftningseffekt.',
+        evidence: 'Motbevist' as const,
+      },
+      {
+        pattern: /(?:anti[-\s]?aging|reverserer aldring|fjerner rynker)[^\.\n]*/i,
+        claimText: 'Reversering av biologisk aldring',
+        verdict: 'VILLEDENDE' as const,
+        explanation: 'Det finnes ingen klinisk dokumenterte preparater som reverserer cellulær aldring. Dette er en overdrevet markedsføringsfrase.',
+        evidence: 'Ingen påvist effekt' as const,
+      },
+      {
+        pattern: /(?:doktor|lege|ekspert)\s*(?:anbefalt|avslører|hemmelighet)/i,
+        claimText: 'Hemmelighet eller metode leger "ikke vil at du skal vite"',
+        verdict: 'VILLEDENDE' as const,
+        explanation: 'Falsk autoritet og konspirasjonsretorikk ("legene skjuler dette") er et klassisk markedsføringstriks for å selge udokumenterte produkter.',
+        evidence: 'Ingen påvist effekt' as const,
+      },
+      {
+        pattern: /(?:garantert|klinisk påvist)\s+(?:vekttap|resultat)/i,
+        claimText: 'Garantert klinisk dokumentert effekt',
+        verdict: 'UDOKUMENTERT' as const,
+        explanation: 'Mangler publiserte, uavhengige dobbeltblindede placebokontrollerte studier (RCT) i anerkjente medisinske tidsskrifter.',
+        evidence: 'Ingen påvist effekt' as const,
+      },
+      {
+        pattern: /(?:senker|normaliserer)\s+(?:blodtrykk|blodsukker)/i,
+        claimText: 'Normaliserer blodtrykk eller blodsukker',
+        verdict: 'DELVIS_DOKUMENTERT' as const,
+        explanation: 'Enkelte næringsstoffer kan ha marginale støttefunksjoner, men kan aldri erstatte reseptbelagt medisinsk behandling eller legekonsultasjon.',
+        evidence: 'Moderat/begrenset' as const,
+      },
+      {
+        pattern: /(?:mirakel|vidunderpille|fettforbrenner|slankepille)/i,
+        claimText: 'Mirakel- eller slankepille',
+        verdict: 'VILLEDENDE' as const,
+        explanation: 'Ingen enkeltpille gir magiske helseeffekter. Menneskets fysiologi fungerer ikke slik.',
+        evidence: 'Ingen påvist effekt' as const,
+      },
+    ];
+
+    const detectedClaims: MedicalClaimFactCheck[] = [];
+    for (const hp of healthPatterns) {
+      const match = combinedText.match(hp.pattern);
+      if (match) {
+        const claimString = match[0].trim().length > 6 ? match[0].trim() : hp.claimText;
+        if (!detectedClaims.some(c => c.claim.toLowerCase() === claimString.toLowerCase())) {
+          detectedClaims.push({
+            claim: claimString,
+            verdict: hp.verdict,
+            scientificExplanation: hp.explanation,
+            evidenceLevel: hp.evidence,
+            sourcesOrConsensus: ['EFSA', 'Cochrane', 'Helsedirektoratet', 'DMP'],
+          });
+        }
+      }
+    }
+
+    if (vision?.detectedHealthClaims) {
+      for (const rawClaim of vision.detectedHealthClaims) {
+        if (!detectedClaims.some(c => c.claim.toLowerCase() === rawClaim.toLowerCase())) {
+          detectedClaims.push({
+            claim: rawClaim,
+            verdict: 'UDOKUMENTERT',
+            scientificExplanation: 'Påstanden krever godkjent helsepåstand hos EFSA eller kliniske studier med signifikant effekt på mennesker.',
+            evidenceLevel: 'Ingen påvist effekt',
+            sourcesOrConsensus: ['EFSA', 'Helsedirektoratet', 'DMP'],
+          });
+        }
+      }
+    }
+
+    if (detectedClaims.length > 0) {
       medicalReview = {
         hasMedicalClaims: true,
-        doctorSummary: 'Reklamen inneholder helserelaterte påstander. Fysiologisk kreves det grundig klinisk dokumentasjon før man kan love helseeffekter av tilskudd eller produkter.',
-        overallVerdict: 'Udokumenterte helsepåstander oppdaget',
-        claims: vision.detectedHealthClaims.map((claim) => ({
-          claim,
-          verdict: 'UDOKUMENTERT',
-          scientificExplanation: 'Påstanden mangler godkjent helsepåstand hos EFSA eller kliniske studier med signifikant effekt på mennesker.',
-          evidenceLevel: 'Ingen påvist effekt',
-          sourcesOrConsensus: ['EFSA', 'Helsedirektoratet', 'DMP'],
-        })),
+        doctorSummary: 'Pee-woop! La oss se på hva biologien og forskningen faktisk sier her. Reklamen benytter urealistiske fysiologiske løfter som mangler forankring i uavhengige kliniske studier. Vær svært skeptisk til påstander som lover raske mirakeleffekter uten livsstilsendring.',
+        overallVerdict: 'Udokumentert markedsføring med fysiologisk uholdbare påstander',
+        claims: detectedClaims,
         disclaimer: 'Denne medisinske faktasjekken er basert på tilgjengelig medisinsk forskning og konsensus per i dag, og er kun ment for generell folkeopplysning. Den erstatter aldri individuell medisinsk vurdering, diagnose eller behandling hos autorisert lege.',
       };
+
+      riskFactors.push({
+        title: 'Fysiologisk uholdbare eller villedende helsepåstander',
+        description: `Reklamen fremsetter ${detectedClaims.length} helsepåstand(er) som savner uavhengig medisinsk dokumentasjon eller er motbevist i forskning.`,
+        severity: detectedClaims.some(c => c.verdict === 'FARLIG') ? 'danger' : 'warning',
+      });
+      score = Math.max(15, score - 25);
     }
 
     return {
