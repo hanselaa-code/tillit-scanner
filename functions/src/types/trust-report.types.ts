@@ -1,4 +1,10 @@
 import { EvidenceObject, EvidenceConfidence } from './evidence.types';
+import {
+  ScanType,
+  PriceIntelligence,
+  PurchaseVerdict,
+  CostObservability,
+} from './purchase-intelligence.types';
 
 export type TrustRiskLevel = 'LAV_RISIKO' | 'MODERAT_RISIKO' | 'HOY_RISIKO' | 'KRITISK_RISIKO';
 
@@ -199,5 +205,9 @@ export interface TrustReport {
   productSupplyChain: ProductSupplyChainReport;
   marketingClaims: MarketingClaimAudit[];
   drMikeMedical: DrMikeMedicalReport;
+  priceIntelligence?: PriceIntelligence;
+  purchaseVerdict?: PurchaseVerdict;
+  scanType?: ScanType;
+  costObservability?: CostObservability;
   evidenceChain: EvidenceObject[]; // Den komplette beviskjeden for "Show investigation" / Deep dive
 }

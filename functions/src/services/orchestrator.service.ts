@@ -9,6 +9,7 @@ import {
 } from '../types/analysis.types';
 import { TrustReport, TimelineEvent } from '../types/trust-report.types';
 import { EvidenceObject } from '../types/evidence.types';
+import { ScanType } from '../types/purchase-intelligence.types';
 import { GeminiService } from './gemini.service';
 import { ReputationService } from './reputation.service';
 import { ReviewsService } from './reviews.service';
@@ -19,6 +20,10 @@ import { ReviewIntelligenceService } from './review-intelligence.service';
 import { ProductIntelligenceService } from './product-intelligence.service';
 import { DrMikeService } from './dr-mike.service';
 import { TrustScoringService } from './trust-scoring.service';
+import { PriceIntelligenceService } from './price-intelligence.service';
+import { ModelRouterService } from './model-router.service';
+import { CacheService } from './cache.service';
+import { EntitlementService } from './entitlement.service';
 
 export class OrchestratorService {
   private geminiService: GeminiService;
@@ -31,6 +36,7 @@ export class OrchestratorService {
   private productIntelligence: ProductIntelligenceService;
   private drMikeService: DrMikeService;
   private trustScoring: TrustScoringService;
+  private priceIntelligence: PriceIntelligenceService;
 
   constructor() {
     this.geminiService = new GeminiService();
@@ -43,22 +49,53 @@ export class OrchestratorService {
     this.productIntelligence = new ProductIntelligenceService();
     this.drMikeService = new DrMikeService();
     this.trustScoring = new TrustScoringService();
+    this.priceIntelligence = new PriceIntelligenceService();
   }
 
   public async analyze(request: AnalyzeRequest): Promise<FinalAnalysisReport> {
     const reportId = randomUUID();
     const now = new Date().toISOString();
-    let visionResult: VisionAnalysisResult | undefined;
+    const effectiveScanType: ScanType = request.scanType || 'deep';
     let effectiveQuery = request.query?.trim() || '';
 
-    // 1. Visjonsanalyse hvis bilde er vedlagt
+    // 1. Entitlement & Kvotesjekk
+    const entitlement = EntitlementService.checkEntitlement(request.userId, effectiveScanType);
+    if (!entitlement.allowed) {
+      throw new Error(entitlement.reason || 'Kvote overskredet for denne analysetypen.');
+    }
+    EntitlementService.recordScanUsage(request.userId, effectiveScanType);
+
+    // 2. Initialiser Model Router & Cost Observability for denne sesjonen
+    const modelRouter = new ModelRouterService(reportId, effectiveScanType, request.userId);
+
+    // 3. Cache-oppslag (Report Cache)
+    const cacheKey = `${effectiveQuery || 'img'}_${request.standaloneDrMike ? 'drmike' : 'std'}`;
+    const cached = CacheService.getReport<FinalAnalysisReport>(cacheKey, effectiveScanType);
+    if (cached) {
+      modelRouter.recordCacheHit();
+      const cachedReport = cached.data;
+      if (cachedReport.trustReport) {
+        cachedReport.trustReport.costObservability = {
+          ...cachedReport.trustReport.costObservability!,
+          cacheHits: 1,
+          cacheMisses: 0,
+        };
+      }
+      return cachedReport;
+    }
+    modelRouter.recordCacheMiss();
+
+    // 4. Visjonsanalyse hvis bilde er vedlagt
+    let visionResult: VisionAnalysisResult | undefined;
     if (request.image) {
+      modelRouter.recordImageAnalysis(false);
       visionResult = await this.geminiService.analyzeImage(
         request.image,
         request.mimeType || 'image/jpeg'
       );
+      // Registrer standard tokenbruk for visjonsmodell (Gemini 2.5 Flash)
+      modelRouter.recordModelUsage('gemini-2.5-flash', 1100, 320, 'companyCostUsd');
 
-      // Hvis brukeren ikke tastet inn en forespørsel manuelt, utled det fra bildeanalysen
       if (!effectiveQuery) {
         if (visionResult.detectedOrgNumbers && visionResult.detectedOrgNumbers.length > 0) {
           effectiveQuery = visionResult.detectedOrgNumbers[0];
@@ -70,12 +107,28 @@ export class OrchestratorService {
       }
     }
 
-    // 2. Domenekandidat
+    const fullContextText = `${effectiveQuery} ${visionResult?.extractedText || ''} ${visionResult?.summaryOfContent || ''}`.trim();
+
+    // 5. Standalone Dr. Mike Modus (dersom brukeren kun sjekker et helseprodukt/annonse)
+    if (request.standaloneDrMike) {
+      return this.handleStandaloneDrMike(
+        reportId,
+        now,
+        fullContextText,
+        visionResult,
+        modelRouter,
+        effectiveScanType,
+        cacheKey
+      );
+    }
+
+    // 6. Domenekandidat
     const domainCandidate =
       (visionResult?.detectedUrls && visionResult.detectedUrls[0]) ||
       (this.looksLikeUrl(effectiveQuery) ? effectiveQuery : undefined);
 
-    // 3. Entity Resolution: Bygg helhetlig selskapsentitet og samle primære bevis
+    // 7. Entity Resolution (Brreg, CVR, NUF, merkevarer)
+    modelRouter.recordExternalApiCall('Brreg/Registry Lookup', 'companyCostUsd');
     const resolvedEntity = await this.entityResolver.resolve(effectiveQuery, domainCandidate);
 
     const detectedProduct =
@@ -83,14 +136,25 @@ export class OrchestratorService {
         (b) => b.toLowerCase() !== resolvedEntity.resolvedName.toLowerCase()
       ) || undefined;
 
-    const fullContextText = `${effectiveQuery} ${visionResult?.extractedText || ''} ${visionResult?.summaryOfContent || ''}`.trim();
+    // 8. Multi-source innhenting
+    // For Fast Scan henter vi lettvektsdata, for Deep Scan henter vi full substans og anmeldelser
+    const isDeep = effectiveScanType === 'deep';
 
-    // 4. Parallell multi-source innhenting
+    modelRouter.recordExternalApiCall('Google/Trustpilot Reviews', 'reviewsCostUsd');
     const [financialsResult, reviewsResult, reputationResult] = await Promise.all([
-      this.financialLookup.lookupFinancials(
-        resolvedEntity.orgNumber,
-        resolvedEntity.brreg?.entity?.antallAnsatte
-      ),
+      isDeep
+        ? this.financialLookup.lookupFinancials(
+            resolvedEntity.orgNumber,
+            resolvedEntity.brreg?.entity?.antallAnsatte
+          )
+        : Promise.resolve({
+            financials: {
+              status: 'BEGRENSET' as const,
+              summary: 'Fast Scan: Dybdegående regnskapstall utelatt for raskere responstid.',
+              accountingNotes: [],
+            },
+            evidence: [],
+          }),
       this.reviewsService.checkReviews(
         effectiveQuery,
         domainCandidate || resolvedEntity.domain,
@@ -102,38 +166,84 @@ export class OrchestratorService {
       ),
     ]);
 
-    // 5. Consumer Policy Audit
+    // 9. Consumer Policy Audit
     const consumerResult = this.consumerPolicy.analyzePolicies(
       fullContextText,
       resolvedEntity.domain
     );
 
-    // 6. Review Intelligence & NLP Similarity Engine
+    // 10. Review Intelligence & NLP Similarity Anomaly Engine
     const reviewIntelResult = this.reviewIntelligence.analyzeReviews(
       reviewsResult.google,
       reviewsResult.trustpilot,
       []
     );
+    modelRouter.recordModelUsage('gemini-2.5-flash', 820, 290, 'reviewsCostUsd');
 
-    // 7. Product & Supply Chain / OEM Profiler
+    // 11. Product & Supply Chain / OEM Profiler
     const productResult = this.productIntelligence.analyzeProduct(
       detectedProduct,
       fullContextText
     );
+    modelRouter.recordModelUsage('gemini-2.5-flash', 650, 210, 'productCostUsd');
 
-    // 8. Dr. Mike Medical Evidence Verification Engine
+    const isOem = productResult.report.originMatch === 'LIKELY_OEM_FAMILY';
+
+    // 12. Price & Alternative Intelligence
+    const priceResult = isDeep
+      ? this.priceIntelligence.analyzePriceAndAlternatives(
+          fullContextText,
+          productResult.report.detectedProductName,
+          isOem
+        )
+      : {
+          priceIntelligence: {
+            hasPriceAnalysis: false,
+            priceVerdict: 'UNABLE_TO_DETERMINE' as const,
+            alternativeCandidates: [],
+            importantNotice: 'Fast Scan: Prissammenligning utelatt.',
+          },
+          evidence: [],
+        };
+    if (isDeep && priceResult.priceIntelligence.hasPriceAnalysis) {
+      modelRouter.recordModelUsage('gemini-2.5-flash', 500, 180, 'priceCostUsd');
+    }
+
+    // 13. Dr. Mike Medical Evidence Verification Engine
     const drMikeResult = this.drMikeService.verifyClaims(
       fullContextText,
       visionResult?.detectedHealthClaims || []
     );
 
-    // 9. Samle den komplette beviskjeden (Evidence Chain)
+    if (drMikeResult.report.hasMedicalClaims) {
+      modelRouter.recordModelUsage('gemini-2.5-flash', 940, 360, 'claimsCostUsd');
+
+      // Model Router Escalation Decision:
+      // Hvis det foreligger alvorlig motsagte helsepåstander (Level A motbevis),
+      // eskaleres arbeidslasten formelt til Gemini Pro for presis begrunnelse.
+      const hasContradiction = drMikeResult.report.claims.some(
+        (c) => c.verdict === 'EVIDENCE_CONTRADICTS_CLAIM'
+      );
+      if (hasContradiction) {
+        modelRouter.selectModel({
+          workload: 'MEDICAL_CONTRADICTION_AUDIT',
+          prompt: fullContextText,
+          module: 'drMikeCostUsd',
+          forceEscalation: true,
+          escalationReason:
+            'Eskalert til Pro-modell: Funnet alvorlig motstrid mellom markedsføring og Level A-konsensus (Cochrane/WHO/EFSA).',
+        });
+      }
+    }
+
+    // 14. Samle den komplette beviskjeden (Evidence Chain)
     const evidenceChain: EvidenceObject[] = [
       ...resolvedEntity.evidence,
       ...financialsResult.evidence,
       ...consumerResult.evidence,
       ...reviewIntelResult.evidence,
       ...productResult.evidence,
+      ...priceResult.evidence,
       ...drMikeResult.evidence,
     ];
 
@@ -151,7 +261,7 @@ export class OrchestratorService {
       });
     }
 
-    // 10. Transparent Trust Scoring & Confidence Calculation
+    // 15. Transparent Trust Scoring & Confidence Calculation
     const scoringResult = this.trustScoring.calculateScore({
       isRegisteredCompany: resolvedEntity.isRegisteredInNorway,
       isBankruptOrLiquidating: resolvedEntity.brreg?.isDissolvedOrBankrupt || false,
@@ -163,7 +273,7 @@ export class OrchestratorService {
       reviewCount: reviewIntelResult.report.totalReviewCount,
       hasReviewSimilarityAnomaly: reviewIntelResult.report.similarityAnomaly.detected,
       hasProductAnalysis: productResult.report.hasProductAnalysis,
-      isOemCategory: productResult.report.originMatch === 'LIKELY_OEM_FAMILY',
+      isOemCategory: isOem,
       medicalClaimsContradicted: drMikeResult.report.claims.some(
         (c) => c.verdict === 'EVIDENCE_CONTRADICTS_CLAIM'
       ),
@@ -174,7 +284,24 @@ export class OrchestratorService {
       evidenceChain,
     });
 
-    // 11. Bygg "What we found" og "Watch out"
+    // 16. Syntetiser helhetlig "AI Purchase Verdict"
+    const purchaseVerdict = this.priceIntelligence.synthesizePurchaseVerdict({
+      trustScore: scoringResult.trustScore,
+      riskLevel: scoringResult.riskLevel,
+      priceVerdict: priceResult.priceIntelligence.priceVerdict,
+      hasReviewAnomaly: reviewIntelResult.report.similarityAnomaly.detected,
+      totalReviews: reviewIntelResult.report.totalReviewCount,
+      isOemProduct: isOem,
+      hasContradictedMedicalClaims: drMikeResult.report.claims.some(
+        (c) => c.verdict === 'EVIDENCE_CONTRADICTS_CLAIM'
+      ),
+      hasUnverifiedMedicalClaims: drMikeResult.report.claims.some(
+        (c) => c.verdict === 'INSUFFICIENT_EVIDENCE'
+      ),
+      drMikeSummary: drMikeResult.report.doctorSummary,
+    });
+
+    // 17. Bygg "What we found" og "Watch out"
     const whatWeFound: string[] = [];
     const watchOut: string[] = [];
 
@@ -193,7 +320,7 @@ export class OrchestratorService {
       watchOut.push('Ingen kritiske faresignaler eller alvorlige avvik observert.');
     }
 
-    // 12. Tidslinje
+    // 18. Tidslinje
     const timeline: TimelineEvent[] = [];
     if (resolvedEntity.brreg?.entity?.stiftelsesdato) {
       timeline.push({
@@ -214,11 +341,14 @@ export class OrchestratorService {
     timeline.push({
       yearOrDate: 'I dag',
       title: 'Trust Scanner analyse',
-      description: `Gjennomført uavhengig verifisering og kildesjekk (${scoringResult.confidence.verifiedCategoriesCount}/8 kategorier).`,
+      description: `Gjennomført ${effectiveScanType === 'fast' ? 'Fast Scan' : 'Deep Scan'} kildesjekk (${scoringResult.confidence.verifiedCategoriesCount}/8 kategorier).`,
       verified: true,
     });
 
-    // 13. Bygg komplett Trust Report
+    // 19. Generer observability-rapport
+    const costObservability = modelRouter.getObservabilityReport();
+
+    // 20. Komplett Trust Report
     const trustReport: TrustReport = {
       id: reportId,
       analyzedAt: now,
@@ -247,10 +377,14 @@ export class OrchestratorService {
       productSupplyChain: productResult.report,
       marketingClaims: [],
       drMikeMedical: drMikeResult.report,
+      priceIntelligence: priceResult.priceIntelligence,
+      purchaseVerdict,
+      scanType: effectiveScanType,
+      costObservability,
       evidenceChain,
     };
 
-    // 14. Bakoverkompatible felt for FinalAnalysisReport
+    // 21. Bakoverkompatible felt for FinalAnalysisReport
     const legacyRiskFactors: AssessmentFactor[] = watchOut.map((item) => ({
       title: 'Observasjon',
       description: item,
@@ -273,7 +407,7 @@ export class OrchestratorService {
       legacyRiskLevel = 'MODERAT';
     }
 
-    return {
+    const finalReport: FinalAnalysisReport = {
       id: reportId,
       analyzedAt: now,
       score: scoringResult.trustScore,
@@ -314,6 +448,124 @@ export class OrchestratorService {
         : undefined,
       trustReport,
     };
+
+    // 22. Lagre i Report Cache
+    CacheService.setReport(cacheKey, effectiveScanType, finalReport);
+
+    return finalReport;
+  }
+
+  private handleStandaloneDrMike(
+    reportId: string,
+    now: string,
+    fullContextText: string,
+    visionResult: VisionAnalysisResult | undefined,
+    modelRouter: ModelRouterService,
+    scanType: ScanType,
+    cacheKey: string
+  ): FinalAnalysisReport {
+    const drMikeResult = this.drMikeService.verifyClaims(
+      fullContextText,
+      visionResult?.detectedHealthClaims || []
+    );
+    modelRouter.recordModelUsage('gemini-2.5-flash', 1150, 420, 'drMikeCostUsd');
+
+    const productResult = this.productIntelligence.analyzeProduct(
+      visionResult?.identifiedBrands?.[0] || 'Helse- eller velværeprodukt',
+      fullContextText
+    );
+
+    const evidenceChain: EvidenceObject[] = [
+      ...productResult.evidence,
+      ...drMikeResult.evidence,
+    ];
+
+    const hasContradiction = drMikeResult.report.claims.some(
+      (c) => c.verdict === 'EVIDENCE_CONTRADICTS_CLAIM'
+    );
+    const score = hasContradiction ? 35 : drMikeResult.report.claims.length > 0 ? 55 : 75;
+    const riskLevel: TrustReport['riskLevel'] = hasContradiction ? 'HOY_RISIKO' : 'MODERAT_RISIKO';
+
+    const costObservability = modelRouter.getObservabilityReport();
+
+    const trustReport: TrustReport = {
+      id: reportId,
+      analyzedAt: now,
+      subject: {
+        query: fullContextText.substring(0, 80),
+        resolvedName: visionResult?.identifiedBrands?.[0] || 'Undersøkt helseprodukt/påstand',
+        officialLegalName: 'Produktgransking (Dr. Mike)',
+        country: 'Norge',
+      },
+      trustScore: score,
+      riskLevel,
+      confidence: {
+        level: 'HIGH',
+        verifiedCategoriesCount: 2,
+        totalCategoriesCount: 2,
+        explanation: 'Fokusert medisinsk og fysiologisk faktasjekk etter evidenspyramiden.',
+      },
+      scoreBreakdown: {
+        businessIdentity: { score: 0, maxScore: 0, weightPercentage: 0, evaluated: false, summary: 'Ikke evaluert i Standalone Dr. Mike' },
+        financialFootprint: { score: 0, maxScore: 0, weightPercentage: 0, evaluated: false, summary: 'Ikke evaluert i Standalone Dr. Mike' },
+        digitalIdentity: { score: 0, maxScore: 0, weightPercentage: 0, evaluated: false, summary: 'Ikke evaluert i Standalone Dr. Mike' },
+        consumerProtection: { score: 0, maxScore: 0, weightPercentage: 0, evaluated: false, summary: 'Ikke evaluert i Standalone Dr. Mike' },
+        reviews: { score: 0, maxScore: 0, weightPercentage: 0, evaluated: false, summary: 'Ikke evaluert i Standalone Dr. Mike' },
+        productTransparency: { score: 8, maxScore: 10, weightPercentage: 20, evaluated: true, summary: productResult.report.originExplanation },
+        claimsAndEvidence: { score: score > 50 ? 8 : 3, maxScore: 10, weightPercentage: 80, evaluated: true, summary: drMikeResult.report.doctorSummary },
+        externalRiskSignals: { score: 5, maxScore: 5, weightPercentage: 0, evaluated: true, summary: 'Ingen registeradvarsler sjekket' },
+      },
+      executiveSummary: drMikeResult.report.doctorSummary || 'Medisinsk vurdering gjennomført.',
+      whatWeFound: drMikeResult.report.claims.map((c) => `${c.claim}: ${c.whatTheEvidenceSays}`).slice(0, 3),
+      watchOut: drMikeResult.report.claims.filter((c) => c.importantLimitation).map((c) => c.importantLimitation!).slice(0, 3),
+      hardRedFlags: [],
+      timeline: [],
+      financialSubstance: { status: 'INGEN_DATA', summary: 'Ikke relevant for standalone produktgransking', accountingNotes: [] },
+      consumerProtection: { status: 'MANGLER', summary: 'Ikke vurdert', hasPhysicalReturnAddress: false, vatAndDutiesIncluded: false, paymentMethods: [], hasCryptoOnlyWarning: false, termsContradictions: [] },
+      reviewIntelligence: { totalReviewCount: 0, averageRating: 0, ratingDistribution: { fiveStarPct: 0, fourStarPct: 0, threeStarPct: 0, twoStarPct: 0, oneStarPct: 0 }, reviewVelocity: { last30DaysCount: 0, last90DaysCount: 0, hasUnusualSpike: false }, clusters: { praised: [], complained: [] }, similarityAnomaly: { detected: false, similarityScore: 0, similarityLevel: 'INGEN', explanation: '' } },
+      productSupplyChain: productResult.report,
+      marketingClaims: [],
+      drMikeMedical: drMikeResult.report,
+      scanType,
+      costObservability,
+      evidenceChain,
+    };
+
+    const finalReport: FinalAnalysisReport = {
+      id: reportId,
+      analyzedAt: now,
+      score,
+      trafficLight: hasContradiction ? 'RED' : 'YELLOW',
+      riskLevel: hasContradiction ? 'HØY' : 'MODERAT',
+      headline: `Dr. Mike Medisinsk Vurdering: ${drMikeResult.report.overallDoctorVerdict || 'Gjennomført'}`,
+      executiveSummary: drMikeResult.report.doctorSummary,
+      riskFactors: trustReport.watchOut.map((w) => ({ title: 'Medisinsk advarsel', description: w, severity: 'warning' })),
+      positiveFactors: trustReport.whatWeFound.map((wf) => ({ title: 'Vitenskapelig dokumentasjon', description: wf, severity: 'info' })),
+      actionableAdvice: [
+        'Rådfør deg alltid med lege før oppstart av nye kosttilskudd eller behandlingsapparater.',
+        'Sjekk Legemiddelverket eller EFSA for godkjente helsepåstander.',
+      ],
+      identifiedSubject: {
+        name: trustReport.subject.resolvedName,
+      },
+      medicalReview: {
+        hasMedicalClaims: true,
+        doctorSummary: drMikeResult.report.doctorSummary,
+        overallVerdict: drMikeResult.report.overallDoctorVerdict,
+        claims: drMikeResult.report.claims.map((c) => ({
+          claim: c.claim,
+          verdict: c.verdict === 'EVIDENCE_CONTRADICTS_CLAIM' ? 'MYTE' : c.verdict === 'STRONG_EVIDENCE' ? 'DOKUMENTERT' : 'UDOKUMENTERT',
+          scientificExplanation: c.whatTheEvidenceSays,
+          evidenceLevel: 'Ingen påvist effekt',
+          sourcesOrConsensus: c.sources,
+        })),
+        disclaimer: drMikeResult.report.disclaimer,
+      },
+      trustReport,
+    };
+
+    CacheService.setReport(cacheKey, scanType, finalReport);
+    return finalReport;
   }
 
   private looksLikeUrl(text: string): boolean {

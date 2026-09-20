@@ -603,6 +603,194 @@ class TrustReportSubject {
   }
 }
 
+class ProductMatch {
+  final String candidateProduct;
+  final String? sourceUrl;
+  final num similarity;
+  final num? price;
+  final String? currency;
+  final String confidence;
+  final String matchType;
+  final String notes;
+
+  ProductMatch({
+    required this.candidateProduct,
+    this.sourceUrl,
+    required this.similarity,
+    this.price,
+    this.currency,
+    required this.confidence,
+    required this.matchType,
+    required this.notes,
+  });
+
+  factory ProductMatch.fromJson(Map<String, dynamic> json) {
+    return ProductMatch(
+      candidateProduct: json['candidateProduct'] ?? '',
+      sourceUrl: json['sourceUrl'],
+      similarity: json['similarity'] ?? 0,
+      price: json['price'],
+      currency: json['currency'],
+      confidence: json['confidence'] ?? 'MODERATE',
+      matchType: json['matchType'] ?? 'UNVERIFIED',
+      notes: json['notes'] ?? '',
+    );
+  }
+}
+
+class PriceIntelligence {
+  final bool hasPriceAnalysis;
+  final num? sellerPrice;
+  final String? sellerCurrency;
+  final num? minBenchmark;
+  final num? maxBenchmark;
+  final num? priceDifferencePercentage;
+  final String priceVerdict;
+  final List<ProductMatch> alternativeCandidates;
+  final String importantNotice;
+
+  PriceIntelligence({
+    required this.hasPriceAnalysis,
+    this.sellerPrice,
+    this.sellerCurrency,
+    this.minBenchmark,
+    this.maxBenchmark,
+    this.priceDifferencePercentage,
+    required this.priceVerdict,
+    required this.alternativeCandidates,
+    required this.importantNotice,
+  });
+
+  factory PriceIntelligence.fromJson(Map<String, dynamic>? json) {
+    if (json == null) {
+      return PriceIntelligence(
+        hasPriceAnalysis: false,
+        priceVerdict: 'UNABLE_TO_DETERMINE',
+        alternativeCandidates: [],
+        importantNotice: '',
+      );
+    }
+    final cands = (json['alternativeCandidates'] as List<dynamic>?) ?? [];
+    return PriceIntelligence(
+      hasPriceAnalysis: json['hasPriceAnalysis'] ?? false,
+      sellerPrice: json['sellerPrice']?['amount'],
+      sellerCurrency: json['sellerPrice']?['currency'],
+      minBenchmark: json['similarProductsPriceRange']?['min'],
+      maxBenchmark: json['similarProductsPriceRange']?['max'],
+      priceDifferencePercentage: json['priceDifferencePercentage'],
+      priceVerdict: json['priceVerdict'] ?? 'UNABLE_TO_DETERMINE',
+      alternativeCandidates: cands.map((c) => ProductMatch.fromJson(c as Map<String, dynamic>)).toList(),
+      importantNotice: json['importantNotice'] ?? '',
+    );
+  }
+}
+
+class PurchaseVerdict {
+  final String canITrustThis;
+  final String isItGoodValue;
+  final String reviewsSummary;
+  final String productTransparency;
+  final String claimVerification;
+  final String? drMikeVerdict;
+  final String summaryHeadline;
+  final String consumerGuidance;
+
+  PurchaseVerdict({
+    required this.canITrustThis,
+    required this.isItGoodValue,
+    required this.reviewsSummary,
+    required this.productTransparency,
+    required this.claimVerification,
+    this.drMikeVerdict,
+    required this.summaryHeadline,
+    required this.consumerGuidance,
+  });
+
+  factory PurchaseVerdict.fromJson(Map<String, dynamic>? json) {
+    if (json == null) {
+      return PurchaseVerdict(
+        canITrustThis: 'MODERAT_RISIKO',
+        isItGoodValue: 'UNABLE_TO_DETERMINE',
+        reviewsSummary: 'NORMAL',
+        productTransparency: 'UNKNOWN',
+        claimVerification: 'NOT_APPLICABLE',
+        summaryHeadline: '',
+        consumerGuidance: '',
+      );
+    }
+    return PurchaseVerdict(
+      canITrustThis: json['canITrustThis'] ?? 'MODERAT_RISIKO',
+      isItGoodValue: json['isItGoodValue'] ?? 'UNABLE_TO_DETERMINE',
+      reviewsSummary: json['reviewsSummary'] ?? 'NORMAL',
+      productTransparency: json['productTransparency'] ?? 'UNKNOWN',
+      claimVerification: json['claimVerification'] ?? 'NOT_APPLICABLE',
+      drMikeVerdict: json['drMikeVerdict'],
+      summaryHeadline: json['summaryHeadline'] ?? '',
+      consumerGuidance: json['consumerGuidance'] ?? '',
+    );
+  }
+}
+
+class CostObservability {
+  final String scanId;
+  final String scanType;
+  final int modelCalls;
+  final List<String> modelsUsed;
+  final int inputTokens;
+  final int outputTokens;
+  final int executionTimeMs;
+  final int cacheHits;
+  final int cacheMisses;
+  final num estimatedCostUsd;
+  final num estimatedCostNok;
+
+  CostObservability({
+    required this.scanId,
+    required this.scanType,
+    required this.modelCalls,
+    required this.modelsUsed,
+    required this.inputTokens,
+    required this.outputTokens,
+    required this.executionTimeMs,
+    required this.cacheHits,
+    required this.cacheMisses,
+    required this.estimatedCostUsd,
+    required this.estimatedCostNok,
+  });
+
+  factory CostObservability.fromJson(Map<String, dynamic>? json) {
+    if (json == null) {
+      return CostObservability(
+        scanId: '',
+        scanType: 'fast',
+        modelCalls: 0,
+        modelsUsed: [],
+        inputTokens: 0,
+        outputTokens: 0,
+        executionTimeMs: 0,
+        cacheHits: 0,
+        cacheMisses: 0,
+        estimatedCostUsd: 0,
+        estimatedCostNok: 0,
+      );
+    }
+    final mList = (json['modelsUsed'] as List<dynamic>?) ?? [];
+    return CostObservability(
+      scanId: json['scanId'] ?? '',
+      scanType: json['scanType'] ?? 'fast',
+      modelCalls: json['modelCalls'] ?? 0,
+      modelsUsed: mList.map((m) => m.toString()).toList(),
+      inputTokens: json['inputTokens'] ?? 0,
+      outputTokens: json['outputTokens'] ?? 0,
+      executionTimeMs: json['executionTimeMs'] ?? 0,
+      cacheHits: json['cacheHits'] ?? 0,
+      cacheMisses: json['cacheMisses'] ?? 0,
+      estimatedCostUsd: json['estimatedCostUsd'] ?? 0,
+      estimatedCostNok: json['estimatedCostNok'] ?? 0,
+    );
+  }
+}
+
 class TrustReport {
   final String id;
   final DateTime analyzedAt;
@@ -621,6 +809,10 @@ class TrustReport {
   final ReviewIntelligenceReport reviewIntelligence;
   final ProductSupplyChainReport productSupplyChain;
   final DrMikeMedicalReport drMikeMedical;
+  final PriceIntelligence? priceIntelligence;
+  final PurchaseVerdict? purchaseVerdict;
+  final String? scanType;
+  final CostObservability? costObservability;
   final List<EvidenceObject> evidenceChain;
 
   TrustReport({
@@ -641,6 +833,10 @@ class TrustReport {
     required this.reviewIntelligence,
     required this.productSupplyChain,
     required this.drMikeMedical,
+    this.priceIntelligence,
+    this.purchaseVerdict,
+    this.scanType,
+    this.costObservability,
     required this.evidenceChain,
   });
 
@@ -671,6 +867,16 @@ class TrustReport {
       reviewIntelligence: ReviewIntelligenceReport.fromJson(json['reviewIntelligence']),
       productSupplyChain: ProductSupplyChainReport.fromJson(json['productSupplyChain']),
       drMikeMedical: DrMikeMedicalReport.fromJson(json['drMikeMedical']),
+      priceIntelligence: json['priceIntelligence'] != null
+          ? PriceIntelligence.fromJson(json['priceIntelligence'] as Map<String, dynamic>)
+          : null,
+      purchaseVerdict: json['purchaseVerdict'] != null
+          ? PurchaseVerdict.fromJson(json['purchaseVerdict'] as Map<String, dynamic>)
+          : null,
+      scanType: json['scanType'],
+      costObservability: json['costObservability'] != null
+          ? CostObservability.fromJson(json['costObservability'] as Map<String, dynamic>)
+          : null,
       evidenceChain: evList.map((e) => EvidenceObject.fromJson(e as Map<String, dynamic>)).toList(),
     );
   }

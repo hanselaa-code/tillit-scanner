@@ -3,7 +3,7 @@
   "scripts": {
     "lint": "tsc --noEmit",
     "build": "tsc",
-    "test": "npm run build && node --test lib/security.test.js lib/golden-vellafit.test.js",
+    "test": "npm run build && node --test lib/security.test.js lib/golden-vellafit.test.js lib/purchase-intelligence.test.js",
     "build:watch": "tsc --watch",
     "serve": "npm run build && firebase emulators:start --only functions",
     "shell": "npm run build && firebase functions:shell",

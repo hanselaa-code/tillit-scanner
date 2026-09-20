@@ -39,6 +39,8 @@ class ApiService {
   Future<FinalAnalysisReport> analyze({
     XFile? imageFile,
     String? manualQuery,
+    String scanType = 'deep',
+    bool standaloneDrMike = false,
   }) async {
     // Hvis eksplisitt satt i development/test
     if (kDebugMode && enableDevMock) {
@@ -54,7 +56,12 @@ class ApiService {
       mimeType = imageFile.name.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
     }
 
-    final payload = <String, dynamic>{};
+    final payload = <String, dynamic>{
+      'scanType': scanType,
+    };
+    if (standaloneDrMike) {
+      payload['standaloneDrMike'] = true;
+    }
     if (base64Image != null) {
       payload['image'] = base64Image;
     }

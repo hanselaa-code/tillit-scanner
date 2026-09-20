@@ -8,6 +8,7 @@ import '../widgets/detail_accordion.dart';
 import '../widgets/medical_fact_check_card.dart';
 import '../widgets/trust_score_card.dart';
 import '../widgets/review_intelligence_card.dart';
+import '../widgets/purchase_verdict_card.dart';
 
 class ResultScreen extends StatelessWidget {
   final FinalAnalysisReport report;
@@ -172,6 +173,11 @@ Råd: ${report.actionableAdvice.join(' ')}$medicalSection
                 ],
               ),
             ),
+
+            // AI Purchase Intelligence Verdict (5 hovedspørsmål)
+            if (report.trustReport?.purchaseVerdict != null) ...[
+              PurchaseVerdictCard(trustReport: report.trustReport!),
+            ],
 
             // Review Intelligence & NLP Anomalisjekk
             if (report.trustReport != null) ...[

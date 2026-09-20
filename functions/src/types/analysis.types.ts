@@ -2,6 +2,9 @@ export interface AnalyzeRequest {
   image?: string; // base64 string
   mimeType?: string; // e.g. 'image/jpeg' | 'image/png'
   query?: string; // Company name, org nr, or URL
+  scanType?: 'fast' | 'deep';
+  userId?: string;
+  standaloneDrMike?: boolean;
 }
 
 export interface VisualRedFlag {

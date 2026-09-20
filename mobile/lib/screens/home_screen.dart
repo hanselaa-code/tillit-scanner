@@ -18,6 +18,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   bool _isLoading = false;
   String _loadingStatus = 'Forbereder analyse...';
+  String _selectedScanType = 'deep'; // 'fast' | 'deep'
 
   @override
   void dispose() {
@@ -25,7 +26,7 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  Future<void> _performAnalysis({XFile? imageFile, String? query}) async {
+  Future<void> _performAnalysis({XFile? imageFile, String? query, bool standaloneDrMike = false}) async {
     setState(() {
       _isLoading = true;
       _loadingStatus = imageFile != null
@@ -37,6 +38,8 @@ class _HomeScreenState extends State<HomeScreen> {
       final report = await _apiService.analyze(
         imageFile: imageFile,
         manualQuery: query,
+        scanType: _selectedScanType,
+        standaloneDrMike: standaloneDrMike,
       );
 
       if (!mounted) return;
@@ -170,22 +173,22 @@ class _HomeScreenState extends State<HomeScreen> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                         decoration: BoxDecoration(
-                          color: AppTheme.primaryBlue.withValues(alpha: 0.2),
+                          color: AppTheme.accentCyan.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: const Text(
-                          'NORSK FORBRUKERVERN MED AI',
+                          'AI PURCHASE INTELLIGENCE',
                           style: TextStyle(
                             fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: AppTheme.primaryBlue,
+                            fontWeight: FontWeight.w800,
+                            color: AppTheme.accentCyan,
                             letterSpacing: 0.5,
                           ),
                         ),
                       ),
                       const SizedBox(height: 12),
                       const Text(
-                        'Avslør svindel før du blir lurt',
+                        'Undersøk før du kjøper',
                         style: TextStyle(
                           fontSize: 22,
                           fontWeight: FontWeight.w800,
@@ -195,7 +198,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       const SizedBox(height: 6),
                       const Text(
-                        'Skann plakater, annonser i sosiale medier, nettbutikker eller sjekk norske selskaper direkte mot Brønnøysundregistrene.',
+                        'Sjekk selgerens tillit, om produktet er OEM/dropshipping, anmeldelser med NLP, reelle markedspriser og medisinske påstander.',
                         style: TextStyle(
                           fontSize: 13,
                           color: AppTheme.textSecondary,
@@ -206,7 +209,107 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
 
-                const SizedBox(height: 24),
+                const SizedBox(height: 18),
+
+                // Scan Mode Velger (Fast Scan vs Deep Scan)
+                Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: AppTheme.surface,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: AppTheme.cardBorder),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () => setState(() => _selectedScanType = 'fast'),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 9),
+                            decoration: BoxDecoration(
+                              color: _selectedScanType == 'fast'
+                                  ? AppTheme.primaryBlue.withValues(alpha: 0.25)
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: _selectedScanType == 'fast'
+                                    ? AppTheme.primaryBlue
+                                    : Colors.transparent,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.bolt_rounded,
+                                  size: 16,
+                                  color: _selectedScanType == 'fast'
+                                      ? AppTheme.primaryBlue
+                                      : AppTheme.textMuted,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Fast Scan',
+                                  style: TextStyle(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: _selectedScanType == 'fast'
+                                        ? AppTheme.textPrimary
+                                        : AppTheme.textMuted,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () => setState(() => _selectedScanType = 'deep'),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 9),
+                            decoration: BoxDecoration(
+                              color: _selectedScanType == 'deep'
+                                  ? AppTheme.accentCyan.withValues(alpha: 0.25)
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: _selectedScanType == 'deep'
+                                    ? AppTheme.accentCyan
+                                    : Colors.transparent,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.travel_explore_rounded,
+                                  size: 16,
+                                  color: _selectedScanType == 'deep'
+                                      ? AppTheme.accentCyan
+                                      : AppTheme.textMuted,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Deep Scan (Full)',
+                                  style: TextStyle(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: _selectedScanType == 'deep'
+                                        ? AppTheme.textPrimary
+                                        : AppTheme.textMuted,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 20),
 
                 // Skannings-handlinger (Kamera og Galleri)
                 const Text(
