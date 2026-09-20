@@ -18,6 +18,7 @@ export interface VisionAnalysisResult {
   visualRedFlags: VisualRedFlag[];
   summaryOfContent: string;
   hasSuspiciousVisualDesign: boolean;
+  detectedHealthClaims?: string[];
 }
 
 export interface BrregEntity {
@@ -120,6 +121,37 @@ export interface ReviewsCheckResult {
   positiveFlags?: string[];
 }
 
+export type MedicalClaimVerdict =
+  | 'DOKUMENTERT'
+  | 'DELVIS_DOKUMENTERT'
+  | 'UDOKUMENTERT'
+  | 'VILLEDENDE'
+  | 'MYTE'
+  | 'FARLIG';
+
+export type MedicalEvidenceLevel =
+  | 'Høy (flere RCT/systematiske oversikter)'
+  | 'Moderat/begrenset'
+  | 'Kun dyre-/in vitro-studier'
+  | 'Ingen påvist effekt'
+  | 'Motbevist';
+
+export interface MedicalClaimFactCheck {
+  claim: string; // Påstanden som fremsettes i reklamen/bildet
+  verdict: MedicalClaimVerdict;
+  scientificExplanation: string; // Dr. Mike-stil forklaring av biologien/fysiologien
+  evidenceLevel: MedicalEvidenceLevel;
+  sourcesOrConsensus: string[]; // F.eks. EFSA, Cochrane, Helsedirektoratet, PubMed, DMP
+}
+
+export interface MedicalExpertReview {
+  hasMedicalClaims: boolean; // Settes kun til true hvis det faktisk finnes helse-/produktpåstander
+  doctorSummary: string; // Dr. Mike-stil engasjerende, folkelig og faglig skarp gjennomgang
+  overallVerdict: string; // F.eks. "Villedende markedsføring med overdrevne løfter"
+  claims: MedicalClaimFactCheck[];
+  disclaimer: string;
+}
+
 export interface FinalAnalysisReport {
   id: string;
   analyzedAt: string;
@@ -145,4 +177,5 @@ export interface FinalAnalysisReport {
   vision?: VisionAnalysisResult;
   reputation?: ReputationCheckResult;
   reviews?: ReviewsCheckResult;
+  medicalReview?: MedicalExpertReview;
 }

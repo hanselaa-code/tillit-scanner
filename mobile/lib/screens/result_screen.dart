@@ -5,6 +5,7 @@ import '../theme/app_theme.dart';
 import '../widgets/score_gauge.dart';
 import '../widgets/risk_factor_tile.dart';
 import '../widgets/detail_accordion.dart';
+import '../widgets/medical_fact_check_card.dart';
 
 class ResultScreen extends StatelessWidget {
   final FinalAnalysisReport report;
@@ -23,12 +24,23 @@ class ResultScreen extends StatelessWidget {
             tooltip: 'Kopier rapport',
             icon: const Icon(Icons.copy_rounded),
             onPressed: () {
+              final medicalSection = (report.medicalReview != null && report.medicalReview!.hasMedicalClaims)
+                  ? '''
+
+MEDISINSK VURDERING (DR. MIKE STIL):
+Overordnet dom: ${report.medicalReview!.overallVerdict}
+Legens reality check: ${report.medicalReview!.doctorSummary}
+Granskede påstander:
+${report.medicalReview!.claims.map((c) => '• "${c.claim}": ${c.verdictLabel} (${c.evidenceLevel}) - ${c.scientificExplanation}').join('\n')}
+'''
+                  : '';
+
               final text = '''
 SCANSAFE / TILLIT RAPPORT
 Subjekt: ${report.identifiedSubject.name ?? 'Ukjent'}
 Seriøsitetsscore: ${report.score}/100 (${report.riskLevel} RISIKO)
 Sammendrag: ${report.executiveSummary}
-Råd: ${report.actionableAdvice.join(' ')}
+Råd: ${report.actionableAdvice.join(' ')}$medicalSection
 ''';
               Clipboard.setData(ClipboardData(text: text));
               ScaffoldMessenger.of(context).showSnackBar(
@@ -153,6 +165,11 @@ Råd: ${report.actionableAdvice.join(' ')}
                 ],
               ),
             ),
+
+            // Medisinsk Faktasjekk & Reklamegransking (Doctor Mike-stil)
+            if (report.medicalReview != null && report.medicalReview!.hasMedicalClaims) ...[
+              MedicalFactCheckCard(medicalReview: report.medicalReview!),
+            ],
 
             const SizedBox(height: 20),
 

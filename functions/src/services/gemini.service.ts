@@ -10,6 +10,7 @@ import {
   TrafficLightColor,
   RiskLevel,
   AssessmentFactor,
+  MedicalExpertReview,
 } from '../types/analysis.types';
 
 export class GeminiService {
@@ -96,7 +97,8 @@ Svar KUN med et gyldig JSON-objekt med nøyaktig denne strukturen:
     }
   ],
   "summaryOfContent": "Kort objektiv oppsummering av hva bildet fremstiller på norsk",
-  "hasSuspiciousVisualDesign": true/false
+  "hasSuspiciousVisualDesign": true/false,
+  "detectedHealthClaims": ["eventuelle konkrete helsepåstander, mirakelløfter, vekttapspåstander, ingredienser eller medisinske effekter som loves i bildet"]
 }
 `;
 
@@ -156,9 +158,31 @@ Svar KUN med et gyldig JSON-objekt med nøyaktig denne strukturen:
       });
 
       const prompt = `
-Du er overdommer og sjefanalytiker i ScanSafe / Tillit.
-Ditt oppdrag er å gi en objektiv, balansert og juridisk forsvarlig forbrukervurdering basert på aggregerte data.
-Bruk formuleringer som «Risikovurdering indikerer...», «Observasjon av...» fremfor ærekrenkende bastante påstander.
+Du har en todelt oppgave:
+1. Sjefanalytiker for forbrukersikkerhet og svindel (ScanSafe / Tillit): Gi en objektiv, balansert og juridisk forsvarlig vurdering av selskaper, nettsteder og kommersiell legitimitet.
+2. Doctor Mike-stil lege og medisinsk ekspert:
+   Dersom inndataene (tekst, bilde, produkt, annonse eller nettside) inneholder helsepåstander, kosttilskudd, kosmetikk/anti-aging, legemidler, vekttap, smertelindring, fysiologiske løfter eller alternative behandlinger:
+   - Innta rollen som en engasjert, pedagogisk og evidensbasert lege inspirert av Doctor Mike (Dr. Mikhail Varshavski).
+   - Tone: Nysgjerrig, varm, folkelig og pedagogisk, men nådeløst presis mot pseudovitenskap, urealistiske fysiologiske løfter og markedsføringstriks ("La oss se på hva biologien og fagfellevurdert forskning faktisk sier her...").
+   - Identifiser og plukk fra hverandre konkrete påstander (claims) i annonsen.
+   - Faktasjekk hver påstand mot solid forskning og anerkjent medisinsk konsensus (EFSA, Cochrane Reviews, Helsedirektoratet, Statens legemiddelverk / Direktoratet for medisinske produkter DMP, PubMed/NIH).
+   - Sett en klar dom for hvert krav:
+     * DOKUMENTERT: Solid vitenskapelig belegg / EFSA-godkjent helsepåstand
+     * DELVIS_DOKUMENTERT: Noe indikasjon/svak effekt, men overdrevet i reklamen
+     * UDOKUMENTERT: Mangler klinisk dokumentasjon på mennesker
+     * VILLEDENDE: Vrir på forskning, bruker irrelevante studier eller lover umulige resultater
+     * MYTE: Biologisk uholdbart (f.eks. "fettforbrenning over natten", "renser giftstoffer/detox")
+     * FARLIG: Potensielt helseskadelig, farlige doser eller oppfordrer til å droppe livsviktig medisin
+   - Angi evidensnivå:
+     * 'Høy (flere RCT/systematiske oversikter)'
+     * 'Moderat/begrenset'
+     * 'Kun dyre-/in vitro-studier'
+     * 'Ingen påvist effekt'
+     * 'Motbevist'
+   - Skriv en "doctorSummary" (Dr. Mike's Reality Check) på 2-4 setninger som forklarer den fysiologiske virkeligheten på en folkelig måte.
+   - Dersom reklamen inneholder farlige/ulovlige medisinske påstander eller kvakksalveri, skal dette også redusere seriøsitetsscoren kraftig (severity: 'danger').
+   - HVIS SAKEN IKKE INNEHOLDER NOEN HELSEPÅSTANDER (f.eks. pakkesvindel fra Posten, bank-SMS, ordinær klesbutikk, elektronikk):
+     Sett "medicalReview": { "hasMedicalClaims": false, "doctorSummary": "", "overallVerdict": "", "claims": [], "disclaimer": "" }.
 
 Inndata:
 - Brukerforespørsel: ${JSON.stringify(query || 'Bildeanalyse')}
@@ -174,9 +198,9 @@ Kritisk regel for nettbutikker og nettsider:
 - Et eventuelt produkt eller varemerke som vises for salg på siden (f.eks. «Hims», «Nike», «Apple iPhone», «Oral-B») er KUN et produkt på siden og skal ALDRI settes som "name" for bedriften/subjektet. Sett i så fall produktet i "detectedProduct".
 
 Generer en seriøsitetsscore fra 0 til 100:
-- 0–39: HØY RISIKO (RØD). Typisk: Falsk merkevare, kjent svindelmønster, konkursrammet foretak, mistenkelig domene, ingen reell bedrift bak, eller ekstremt dårlige anmeldelser/kundeklager.
-- 40–69: MODERAT RISIKO / VÆR OPPMERKSOM (GUL). Typisk: Nystiftet foretak, manglende MVA, ufullstendig kontaktinfo, uklare vilkår, eller under middels/blandede kundeanmeldelser.
-- 70–100: LAV RISIKO / ETABLERT (GRØNN). Typisk: Etablert norsk AS eller NUF med historikk, aktivt MVA-registrert, offisielt domene, gode kundeanmeldelser.
+- 0–39: HØY RISIKO (RØD). Typisk: Falsk merkevare, kjent svindelmønster, konkursrammet foretak, helsefarlige påstander/kvakksalveri, mistenkelig domene, ingen reell bedrift bak, eller ekstremt dårlige anmeldelser/kundeklager.
+- 40–69: MODERAT RISIKO / VÆR OPPMERKSOM (GUL). Typisk: Nystiftet foretak, manglende MVA, villedende/udokumenterte helseløfter, ufullstendig kontaktinfo, uklare vilkår, eller under middels/blandede kundeanmeldelser.
+- 70–100: LAV RISIKO / ETABLERT (GRØNN). Typisk: Etablert norsk AS eller NUF med historikk, aktivt MVA-registrert, offisielt domene, gode kundeanmeldelser, og eventuelle helsepåstander er i tråd med vitenskapelig konsensus.
 
 Viktig om kundeanmeldelser:
 - Hvis aktøren har lave anmeldelser på Google (< 3.0 stjerner) eller klager på manglende levering/kundeservice: Inkluder en risikofaktor med severity "danger" eller "warning" og reduser scoren.
@@ -216,6 +240,21 @@ Returner KUN gyldig JSON med følgende struktur:
     "orgNumber": "9-sifret orgnr hvis relevant",
     "websiteUrl": "Nettadresse hvis relevant",
     "detectedProduct": "Navn på enkeltprodukt på siden hvis relevant (f.eks. Hims)"
+  },
+  "medicalReview": {
+    "hasMedicalClaims": boolean,
+    "doctorSummary": "Dr. Mike-stil pedagogisk og vitenskapelig reality check",
+    "overallVerdict": "Kort overordnet medisinsk dom (f.eks. 'Udokumentert kosttilskudd med overdrevne løfter')",
+    "claims": [
+      {
+        "claim": "Konkret påstand fra reklamen",
+        "verdict": "DOKUMENTERT" | "DELVIS_DOKUMENTERT" | "UDOKUMENTERT" | "VILLEDENDE" | "MYTE" | "FARLIG",
+        "scientificExplanation": "Vitenskapelig og fysiologisk forklaring basert på forskning",
+        "evidenceLevel": "Høy (flere RCT/systematiske oversikter)" | "Moderat/begrenset" | "Kun dyre-/in vitro-studier" | "Ingen påvist effekt" | "Motbevist",
+        "sourcesOrConsensus": ["EFSA", "Cochrane", "PubMed", "Helsedirektoratet", "DMP"]
+      }
+    ],
+    "disclaimer": "Denne medisinske faktasjekken er basert på tilgjengelig medisinsk forskning og konsensus per i dag, og er kun ment for generell folkeopplysning. Den erstatter aldri individuell medisinsk vurdering, diagnose eller behandling hos autorisert lege."
   }
 }
 `;
@@ -252,6 +291,29 @@ Returner KUN gyldig JSON med følgende struktur:
         }
       }
 
+      let medicalReview: MedicalExpertReview | undefined = undefined;
+      if (data.medicalReview && data.medicalReview.hasMedicalClaims) {
+        medicalReview = {
+          hasMedicalClaims: true,
+          doctorSummary: data.medicalReview.doctorSummary || '',
+          overallVerdict: data.medicalReview.overallVerdict || 'Helsepåstander gransket',
+          claims: Array.isArray(data.medicalReview.claims)
+            ? data.medicalReview.claims.map((c: any) => ({
+                claim: String(c.claim || ''),
+                verdict: c.verdict || 'UDOKUMENTERT',
+                scientificExplanation: String(c.scientificExplanation || ''),
+                evidenceLevel: c.evidenceLevel || 'Ingen påvist effekt',
+                sourcesOrConsensus: Array.isArray(c.sourcesOrConsensus) && c.sourcesOrConsensus.length > 0
+                  ? c.sourcesOrConsensus.map(String)
+                  : ['Vitenskapelig konsensus'],
+              }))
+            : [],
+          disclaimer:
+            data.medicalReview.disclaimer ||
+            'Denne medisinske faktasjekken er basert på tilgjengelig medisinsk forskning og konsensus per i dag, og er kun ment for generell folkeopplysning. Den erstatter aldri individuell medisinsk vurdering, diagnose eller behandling hos autorisert lege.',
+        };
+      }
+
       return {
         id,
         analyzedAt: new Date().toISOString(),
@@ -277,6 +339,7 @@ Returner KUN gyldig JSON med følgende struktur:
         vision,
         reputation,
         reviews,
+        medicalReview,
       };
     } catch (err: any) {
       console.warn('Gemini synthesis failed, falling back to heuristic engine:', err.message);
@@ -514,6 +577,23 @@ Returner KUN gyldig JSON med følgende struktur:
       }
     }
 
+    let medicalReview: MedicalExpertReview | undefined = undefined;
+    if (vision?.detectedHealthClaims && vision.detectedHealthClaims.length > 0) {
+      medicalReview = {
+        hasMedicalClaims: true,
+        doctorSummary: 'Reklamen inneholder helserelaterte påstander. Fysiologisk kreves det grundig klinisk dokumentasjon før man kan love helseeffekter av tilskudd eller produkter.',
+        overallVerdict: 'Udokumenterte helsepåstander oppdaget',
+        claims: vision.detectedHealthClaims.map((claim) => ({
+          claim,
+          verdict: 'UDOKUMENTERT',
+          scientificExplanation: 'Påstanden mangler godkjent helsepåstand hos EFSA eller kliniske studier med signifikant effekt på mennesker.',
+          evidenceLevel: 'Ingen påvist effekt',
+          sourcesOrConsensus: ['EFSA', 'Helsedirektoratet', 'DMP'],
+        })),
+        disclaimer: 'Denne medisinske faktasjekken er basert på tilgjengelig medisinsk forskning og konsensus per i dag, og er kun ment for generell folkeopplysning. Den erstatter aldri individuell medisinsk vurdering, diagnose eller behandling hos autorisert lege.',
+      };
+    }
+
     return {
       id,
       analyzedAt: new Date().toISOString(),
@@ -539,6 +619,7 @@ Returner KUN gyldig JSON med følgende struktur:
       vision,
       reputation,
       reviews,
+      medicalReview,
     };
   }
 
@@ -748,6 +829,24 @@ Returner KUN gyldig JSON med følgende struktur:
       summaryOfContent = 'Ingen lesbar tekst eller kjente merkevarer ble oppdaget i bildet.';
     }
 
+    // Helsepåstander / mirakelpåstander
+    const detectedHealthClaims: string[] = [];
+    const healthPatterns = [
+      /(?:forbrenner|reduserer|smelter)\s+(?:fett|vekt|magefett)/i,
+      /(?:kurerer|helbreder|fjerner)\s+(?:smerter|leddsmerter|artrose|betennelse|kreft|diabetes)/i,
+      /(?:renser kroppen for giftstoffer|detox)/i,
+      /(?:anti[-\s]?aging|reverserer aldring|fjerner rynker)/i,
+      /(?:doktor|lege|ekspert)\s*(?:anbefalt|avslører|hemmelighet)/i,
+      /(?:garantert|klinisk påvist)\s+(?:vekttap|resultat)/i,
+      /(?:senker|normaliserer)\s+(?:blodtrykk|blodsukker)/i,
+    ];
+    for (const pattern of healthPatterns) {
+      const m = cleanText.match(pattern);
+      if (m && !detectedHealthClaims.includes(m[0])) {
+        detectedHealthClaims.push(m[0]);
+      }
+    }
+
     return {
       extractedText: cleanText,
       identifiedBrands,
@@ -756,6 +855,7 @@ Returner KUN gyldig JSON med følgende struktur:
       visualRedFlags,
       summaryOfContent,
       hasSuspiciousVisualDesign: visualRedFlags.length > 0,
+      detectedHealthClaims: detectedHealthClaims.length > 0 ? detectedHealthClaims : undefined,
     };
   }
 }

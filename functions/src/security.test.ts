@@ -246,4 +246,28 @@ test('Brreg & Store vs Product: Resolving webshop entities and separate products
     // Scoren skal være grønn (lav risiko)
     assert.equal(report.trafficLight, 'GREEN');
   });
+
+  await t.test('GeminiService støtter Doctor Mike medisinsk faktasjekk ved helsepåstander', async () => {
+    const geminiService = new GeminiService();
+    const report = await geminiService.synthesizeReport({
+      id: 'test-report-medical',
+      query: 'Mirakel fettforbrenner',
+      vision: {
+        extractedText: 'Forbrenner fett over natten og kurerer leddsmerter! Klinisk bevist!',
+        identifiedBrands: ['MirakelPille'],
+        detectedUrls: [],
+        detectedOrgNumbers: [],
+        visualRedFlags: [],
+        summaryOfContent: 'Reklame for slankepiller med helsepåstander',
+        hasSuspiciousVisualDesign: false,
+        detectedHealthClaims: ['Forbrenner fett over natten', 'Kurerer leddsmerter'],
+      },
+    });
+
+    assert.ok(report.medicalReview);
+    assert.equal(report.medicalReview.hasMedicalClaims, true);
+    assert.ok(report.medicalReview.claims.length > 0);
+    assert.ok(report.medicalReview.doctorSummary.length > 0);
+    assert.ok(report.medicalReview.disclaimer.includes('erstatter'));
+  });
 });

@@ -313,6 +313,149 @@ class ReviewsDetails {
   }
 }
 
+enum MedicalClaimVerdict {
+  documented,
+  partiallyDocumented,
+  undocumented,
+  misleading,
+  myth,
+  dangerous,
+}
+
+class MedicalClaimFactCheck {
+  final String claim;
+  final MedicalClaimVerdict verdict;
+  final String scientificExplanation;
+  final String evidenceLevel;
+  final List<String> sourcesOrConsensus;
+
+  MedicalClaimFactCheck({
+    required this.claim,
+    required this.verdict,
+    required this.scientificExplanation,
+    required this.evidenceLevel,
+    required this.sourcesOrConsensus,
+  });
+
+  factory MedicalClaimFactCheck.fromJson(Map<String, dynamic> json) {
+    MedicalClaimVerdict parseVerdict(String? val) {
+      switch (val?.toUpperCase()) {
+        case 'DOKUMENTERT':
+          return MedicalClaimVerdict.documented;
+        case 'DELVIS_DOKUMENTERT':
+          return MedicalClaimVerdict.partiallyDocumented;
+        case 'UDOKUMENTERT':
+          return MedicalClaimVerdict.undocumented;
+        case 'VILLEDENDE':
+          return MedicalClaimVerdict.misleading;
+        case 'MYTE':
+          return MedicalClaimVerdict.myth;
+        case 'FARLIG':
+          return MedicalClaimVerdict.dangerous;
+        default:
+          return MedicalClaimVerdict.undocumented;
+      }
+    }
+
+    return MedicalClaimFactCheck(
+      claim: json['claim'] ?? '',
+      verdict: parseVerdict(json['verdict']),
+      scientificExplanation: json['scientificExplanation'] ?? '',
+      evidenceLevel: json['evidenceLevel'] ?? 'Ingen påvist effekt',
+      sourcesOrConsensus: List<String>.from(json['sourcesOrConsensus'] ?? []),
+    );
+  }
+
+  String get verdictLabel {
+    switch (verdict) {
+      case MedicalClaimVerdict.documented:
+        return 'Dokumentert';
+      case MedicalClaimVerdict.partiallyDocumented:
+        return 'Delvis dokumentert';
+      case MedicalClaimVerdict.undocumented:
+        return 'Udokumentert påstand';
+      case MedicalClaimVerdict.misleading:
+        return 'Villedende markedsføring';
+      case MedicalClaimVerdict.myth:
+        return 'Medisinsk myte';
+      case MedicalClaimVerdict.dangerous:
+        return 'Advarsel: Potensielt farlig';
+    }
+  }
+
+  Color get verdictColor {
+    switch (verdict) {
+      case MedicalClaimVerdict.documented:
+        return const Color(0xFF10B981); // Emerald
+      case MedicalClaimVerdict.partiallyDocumented:
+        return const Color(0xFFF59E0B); // Amber
+      case MedicalClaimVerdict.undocumented:
+        return const Color(0xFFF97316); // Orange
+      case MedicalClaimVerdict.misleading:
+      case MedicalClaimVerdict.myth:
+        return const Color(0xFFEF4444); // Red
+      case MedicalClaimVerdict.dangerous:
+        return const Color(0xFFDC2626); // Dark Red
+    }
+  }
+
+  IconData get verdictIcon {
+    switch (verdict) {
+      case MedicalClaimVerdict.documented:
+        return Icons.check_circle_rounded;
+      case MedicalClaimVerdict.partiallyDocumented:
+        return Icons.help_outline_rounded;
+      case MedicalClaimVerdict.undocumented:
+        return Icons.warning_amber_rounded;
+      case MedicalClaimVerdict.misleading:
+      case MedicalClaimVerdict.myth:
+        return Icons.cancel_rounded;
+      case MedicalClaimVerdict.dangerous:
+        return Icons.dangerous_rounded;
+    }
+  }
+}
+
+class MedicalExpertReview {
+  final bool hasMedicalClaims;
+  final String doctorSummary;
+  final String overallVerdict;
+  final List<MedicalClaimFactCheck> claims;
+  final String disclaimer;
+
+  MedicalExpertReview({
+    required this.hasMedicalClaims,
+    required this.doctorSummary,
+    required this.overallVerdict,
+    required this.claims,
+    required this.disclaimer,
+  });
+
+  factory MedicalExpertReview.fromJson(Map<String, dynamic>? json) {
+    if (json == null) {
+      return MedicalExpertReview(
+        hasMedicalClaims: false,
+        doctorSummary: '',
+        overallVerdict: '',
+        claims: [],
+        disclaimer: '',
+      );
+    }
+
+    final claimsList = (json['claims'] as List<dynamic>?) ?? [];
+
+    return MedicalExpertReview(
+      hasMedicalClaims: json['hasMedicalClaims'] ?? false,
+      doctorSummary: json['doctorSummary'] ?? '',
+      overallVerdict: json['overallVerdict'] ?? '',
+      claims: claimsList
+          .map((c) => MedicalClaimFactCheck.fromJson(c as Map<String, dynamic>))
+          .toList(),
+      disclaimer: json['disclaimer'] ?? '',
+    );
+  }
+}
+
 class FinalAnalysisReport {
   final String id;
   final DateTime analyzedAt;
@@ -329,6 +472,7 @@ class FinalAnalysisReport {
   final DomainDetails? domain;
   final VisionDetails? vision;
   final ReviewsDetails? reviews;
+  final MedicalExpertReview? medicalReview;
 
   FinalAnalysisReport({
     required this.id,
@@ -346,6 +490,7 @@ class FinalAnalysisReport {
     this.domain,
     this.vision,
     this.reviews,
+    this.medicalReview,
   });
 
   factory FinalAnalysisReport.fromJson(Map<String, dynamic> json) {
@@ -387,6 +532,9 @@ class FinalAnalysisReport {
       domain: json['domain'] != null ? DomainDetails.fromJson(json['domain']) : null,
       vision: json['vision'] != null ? VisionDetails.fromJson(json['vision']) : null,
       reviews: json['reviews'] != null ? ReviewsDetails.fromJson(json['reviews']) : null,
+      medicalReview: json['medicalReview'] != null
+          ? MedicalExpertReview.fromJson(json['medicalReview'])
+          : null,
     );
   }
 
